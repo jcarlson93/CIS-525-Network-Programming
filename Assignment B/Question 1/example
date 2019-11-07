@@ -1,0 +1,141 @@
+Script started on Fri Sep 13 12:08:20 1996
+phact% ls
+Makefile  README    client.c  example   inet.h    server.c
+phact% make
+/usr/local/bin/gcc -g   -c server.c -o server.o
+gcc -g -o server server.o -lnsl
+/usr/local/bin/gcc -g   -c client.c -o client.o
+gcc -g -o client client.o -lnsl
+phact% server &
+[1] 905
+phact% server &
+[2] 906
+phact% server: can't bind local address: Address already in use
+
+[2]    Exit 1               server
+phact% client
+===========================================
+                   Menu: 
+-------------------------------------------
+                1. Date
+                2. Time
+                3. Both
+                4. Quit
+-------------------------------------------
+               Choice (1-4):1
+===========================================
+   Friday, September 13, 1996
+===========================================
+                   Menu: 
+-------------------------------------------
+                1. Date
+                2. Time
+                3. Both
+                4. Quit
+-------------------------------------------
+               Choice (1-4):2
+===========================================
+   12:09:02
+===========================================
+                   Menu: 
+-------------------------------------------
+                1. Date
+                2. Time
+                3. Both
+                4. Quit
+-------------------------------------------
+               Choice (1-4):2
+===========================================
+   12:09:03
+===========================================
+                   Menu: 
+-------------------------------------------
+                1. Date
+                2. Time
+                3. Both
+                4. Quit
+-------------------------------------------
+               Choice (1-4):3
+===========================================
+   Friday, September 13, 1996 - 12:09:05
+===========================================
+                   Menu: 
+-------------------------------------------
+                1. Date
+                2. Time
+                3. Both
+                4. Quit
+-------------------------------------------
+               Choice (1-4):4
+===========================================
+phact% server
+server: can't bind local address: Address already in use
+phact% cat inet.h
+/*
+ * Definitions for TCP and UDP client/server programs.
+ */
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/ipc.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#define	SERV_TCP_PORT	9134
+#define	SERV_HOST_ADDR	"129.130.10.16"  /* Change this to be your host addr */
+phact% netstat -an | grep 9134
+      *.9134               *.*                0      0     0      0 LISTEN
+129.130.10.16.9134   129.130.10.16.32993   8192      0 32768      0 TIME_WAIT
+129.130.10.16.9134   129.130.10.16.32994   8192      0 32768      0 TIME_WAIT
+129.130.10.16.9134   129.130.10.16.32995   8192      0 32768      0 TIME_WAIT
+129.130.10.16.9134   129.130.10.16.32996   8192      0 32768      0 TIME_WAIT
+phact% client
+===========================================
+                   Menu: 
+-------------------------------------------
+                1. Date
+                2. Time
+                3. Both
+                4. Quit
+-------------------------------------------
+               Choice (1-4):1
+===========================================
+   Friday, September 13, 1996
+===========================================
+                   Menu: 
+-------------------------------------------
+                1. Date
+                2. Time
+                3. Both
+                4. Quit
+-------------------------------------------
+               Choice (1-4):4
+===========================================
+phact% netstat -an | grep 9134
+      *.9134               *.*                0      0     0      0 LISTEN
+129.130.10.16.9134   129.130.10.16.32993   8192      0 32768      0 TIME_WAIT
+129.130.10.16.9134   129.130.10.16.32994   8192      0 32768      0 TIME_WAIT
+129.130.10.16.9134   129.130.10.16.32995   8192      0 32768      0 TIME_WAIT
+129.130.10.16.9134   129.130.10.16.32996   8192      0 32768      0 TIME_WAIT
+129.130.10.16.9134   129.130.10.16.32998   8192      0 32768      0 TIME_WAIT
+phact% ps -uneilsen
+   PID TTY      TIME CMD
+   614 ??       0:00 xclock
+   616 ?        0:01 twm
+   621 pts/1    0:00 tail
+   623 pts/2    0:00 csh
+   640 ?        0:02 xmail
+   632 pts/3    0:00 csh
+   641 ?        0:02 mailx
+   905 ?        0:00 server
+   684 pts/4    0:00 csh
+   917 pts/3    0:00 script
+   916 pts/3    0:00 script
+   918 pts/6    0:00 csh
+phact% kill 905
+phact% 
+script done on Fri Sep 13 12:11:02 1996

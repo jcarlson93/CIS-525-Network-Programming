@@ -1,0 +1,18 @@
+
+1. Copy the files to your own directory.
+
+2. Modify inet.h to reflect the host you are currently logged into.
+   (use hostname and nslookup to determine the local IP address)
+   Also, modify the port numbers to be used to reduce the likelihood
+   of conflicting with another server. Check to see if the selected
+   port is in use by using the command: netstat -an | grep <port #>
+
+3. Compile the source code using the command: make.
+
+4. Start the server in the background: myserver &
+
+5. Start the client on the same or another host in the foreground: myclient
+
+6. Remember to kill the server before logging off.
+
+
