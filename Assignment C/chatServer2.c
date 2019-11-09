@@ -9,7 +9,6 @@ Chat Server
 	Topic: cats, cows, dogs which each have certificate of catsPEM, cowsPEM, and dogsPEM
 */
 
-
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
