@@ -21,7 +21,7 @@ Chat Server
 #include <openssl/ssl.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
-
+#include <pthread.h> /*For help on threads I used this example: https://www.geeksforgeeks.org/multithreading-c-2/*/
 #define MAX 10000
 
 /* This is the max number of SSL Connection that can be connected to this server*/
@@ -177,6 +177,7 @@ void main(int argc, char **argv)
 	SSL_CTX *			ctxdir; /* Creates a context for SSL Connection to directory*/
 	SSL_CTX *			newctx; /* Used for incoming SSL Connections */
 	SSL *				ssldir; /* Creates an ssl connection to directory */
+	pthread_t			listenerThread;
 
 	sslConnection = NULL;
 
@@ -278,7 +279,6 @@ void main(int argc, char **argv)
 
 
 	/* Making sure everything is set to NULL/zeroing variables */
-	FD_ZERO(&readfds);
 	userList = calloc(CONNECTIONS, sizeof(User));
 	sslConnection = calloc(CONNECTIONS, sizeof(SSL*));
 
@@ -323,249 +323,209 @@ void main(int argc, char **argv)
 	sslConnection[0] = ssl;
 	ShowCerts(sslConnection[0]);
 
-	/* Add listener to file descriptor set and set it to the maximum file descriptor for now*/
-	FD_SET(sockfd, &readfds);
-	maxfds = sockfd;
+	/* Creating threads for listener*/
+	/* The threadInfo object will hold all the information that is needed for the listener to perform its duties.*/
+	if ((pthread_create(&listener, NULL, listenerThread, threadInfo) != 0)) {
+		perror("Creating recieve Message Thread failed!\n");
+		exit(1);
+	}
 
 	printf("Before for loop");
-	/*How to solve select: http://www.past5.com/tutorials/2014/02/21/openssl-and-select/ */
 	while (1) {
-
-		/* Zero out file descriptor set and add listener*/
-		FD_ZERO(&readfds);
-		FD_SET(sockfd, &readfds);
-		maxfds = sockfd;
-
-		/* Add all other SSL Connections to file descriptor set */
-		for (int i = 0; i < CONNECTIONS; i++) {
-
-			if (sslConnection[i] != NULL) {
-				printf("NOT NULL %d\n", i);
-				int sock = SSL_get_fd(sslConnection[i]);
-				FD_SET(sock, &readfds);
-				if (sock > maxfds) {
-					maxfds = sock;
-				}
-			}
-		}
-
-
-		selection = select(maxfds + 1, &readfds, NULL, NULL, NULL);
-
-		if ((selection < 0) && (errno != EINTR)) {
-			perror("Select messed up.");
-			exit(1);
-		}
-
-		for (int i = 0; i < CONNECTIONS; i++) {
-			
-			if (sslConnection[i] == NULL)
-				continue;
-
-			int currentfd = SSL_get_fd(sslConnection[i]);
-
-			if (FD_ISSET(currentfd, &readfds)) {
-				if (currentfd == sockfd) { //This is checking the listener socket
-
-						/* Accept a new connection request. */
-						printf("ACCEPTING");
-						clilen = sizeof(cli_addr);
-						newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-
-
-						/* Once a new accept has happened we create a new SSL connection using the ctx context*/
-						newctx = InitServerCTX();
-						LoadCerts(newctx, certName, certName);
-
-						newssl = SSL_new(newctx);
-						SSL_set_fd(newssl, newsockfd);
-
-						/* try to accept using ssl */
-						if (SSL_accept(newssl) <= 0) {
-							ERR_print_errors_fp(stdout);
-						}
-						ShowCerts(newssl);
-						printf("AFTER CERT");
-
-						/* Find an open SSL Connection in the list to add the new connection */
-						for (int index = 0; index < CONNECTIONS; index++) {
-							if (sslConnection[index] == NULL) {
-								sslConnection[index] = newssl;
-								printf("Found a spot!");
-								FD_SET(newsockfd, &readfds);
-								if (newsockfd > maxfds) {
-									maxfds = newsockfd;
-								}
-
-								printf("ADDING NEW CONNECTION\n");
-								break;
-							}
-						}
-						
-				}
-				else {
-
-					/* This do while statement makes sure only one SSL connection is reading at a time.*/
-					if (FD_ISSET(currentfd, &readfds)) {
-
-						SSL_read(sslConnection[i], request, MAX);
-
-						printf("Reading Request\n");
-						printf("%s\n\n", request);
-						/* Forgot how to use string tokenizer followed this link: https://www.geeksforgeeks.org/strtok-strtok_r-functions-c-examples/ */
-						char * typeOfMessage = strtok(request, ",");
-						char * token = strtok(NULL, ",");
-						char * username = token;
-						token = strtok(NULL, ",");
-						char * message = token;
-						/* Generate an appropriate reply. */
-
-						switch (typeOfMessage[0]) {
-
-							/*This case registers the username of the client.*/
-						case 'U':
-							;
-							int firstUser = 1;
-							for (int index = 0; index < CONNECTIONS; index++) {
-								if (userList[index].socketId != -1) {
-									firstUser = 0;
-									break;
-								}
-							}
-
-							/*If no users are in the file then we know that this client is the first one in the chat.*/
-							if (firstUser == 1) {
-
-								sprintf(s, "You are the first user in the chat.\n");
-								strcpy(userList[0].username, username);
-								userList[0].socketId = currentfd;
-								userList[0].ssl = sslConnection[i];
-								printf("FIRST USER\n");
-								printf("%s", s);
-								
-								if (SSL_write(userList[0].ssl, s, MAX) <= 0) {
-									ERR_print_errors_fp(stdout);
-								}
-								printf("Written.\n");
-
-							}
-							else {
-								/*Goes through list of users and makes sure the username is not taken.*/
-
-								if (findUser(userList, username) == 0) {
-									/*Creates the welcome message for a new user*/
-									sprintf(s, message);
-									strcat(s, " has joined the chat.\n");
-
-									/* Adds the new user to the userList*/
-									for (int index = 0; index < CONNECTIONS; index++) {
-										if (userList[index].socketId == -1) {
-											userList[index].ssl = sslConnection[i];
-											strcpy(userList[index].username, username);
-											userList[index].socketId = currentfd;
-											break;
-										}
-									}
-
-									
-									strcpy(buff, message);
-									messageAllUsers(userList, s);
-
-									printf("NEWER USER\n");
-								}
-								else {
-									sprintf(s, "Username already taken.\n");
-									SSL_write(sslConnection[i], s, MAX);
-
-								}
-							}
-
-							/* Send the reply to the client. */
-
-							break;
-
-							/*Once a user is registered they can send messages*/
-						case 'M':
-							;
-							strcpy(s, username);
-
-							strcat(s, ": ");
-							strcat(s, message);
-							printf("GOT A MESSAGE");
-							printf("%s", s);
-							messageAllUsers(userList, s);
-							break;
-							/*When the user ends the client we remove the user from the list and end their socket.*/
-						case 'Q':
-							;
-							printf("SOMEONE WANTS TO QUIT\n\n");
-							int found = 0;
-							/* Go through the userlist and remove the user*/
-							for (int index = 0; index < CONNECTIONS; index++) {
-								if (userList[index].socketId == i) {
-									strcpy(s, userList[index].username);
-									printf("REMOVING USER\n");
-									strcat(s, ": ");
-									strcat(s, message);
-									printf("%s", s);
-									messageAllUsers(userList, s);
-									close(currentfd);
-									FD_CLR(currentfd, &readfds);
-									SSL_CTX_free(SSL_get_SSL_CTX(userList[index].ssl));
-									strcpy(userList[index].username, "");
-									userList[index].socketId = -1;
-								}
-							}
-
-									
-								/*Make sure we have the maximum file descriptor*/
-							maxfds = 0;
-									for (int index = 0; index < CONNECTIONS; index++) {
-										if (userList[index].socketId > maxfds) {
-											maxfds = userList[i].socketId;
-										}
-									}
-							
-									/* Check to see if we have no users*/
-									int emptyServer = 1;
-									for (int index = 0; index < CONNECTIONS; index++) {
-										if (userList[index].socketId > 0) {
-											emptyServer = 0;
-											break;
-										}
-									}
-
-									/*Close down the Server and remove it from directory*/
-									if (emptyServer == 0) {
-										/* Set up the address of the server to be contacted. */
-										
-										strcpy(buff, "Q,");
-										strcat(buff, topic);
-										strcat(buff, ",");
-										strcat(buff, topic);
-										SSL_write(ssldir, buff, MAX);
-										close(directoryfd);
-										SSL_CTX_free(ctxdir);
-										exit(0);
-									}
-
-
-
-							break;
-						default: strcpy(s, "Invalid request\n");
-							SSL_write(userList[i].ssl, s, MAX);
-							break;
-						}
-
-					}
-				}
-
-			}
-
-		}
 
 	}
 }
+
+void listener() {
+	/* Accept a new connection request. */
+	printf("ACCEPTING");
+	clilen = sizeof(cli_addr);
+	newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+
+
+	/* Once a new accept has happened we create a new SSL connection using the ctx context*/
+	newctx = InitServerCTX();
+	LoadCerts(newctx, certName, certName);
+
+	newssl = SSL_new(newctx);
+	SSL_set_fd(newssl, newsockfd);
+
+	/* try to accept using ssl */
+	if (SSL_accept(newssl) <= 0) {
+		ERR_print_errors_fp(stdout);
+	}
+	ShowCerts(newssl);
+	printf("AFTER CERT");
+
+	/* Find an open SSL Connection in the list to add the new connection */
+	for (int index = 0; index < CONNECTIONS; index++) {
+		if (sslConnection[index] == NULL) {
+			sslConnection[index] = newssl;
+			printf("Found a spot!");
+			FD_SET(newsockfd, &readfds);
+			if (newsockfd > maxfds) {
+				maxfds = newsockfd;
+			}
+
+			printf("ADDING NEW CONNECTION\n");
+			break;
+		}
+	}
+}
+
+void clientRequest() {
+
+		SSL_read(sslConnection[i], request, MAX);
+
+		printf("Reading Request\n");
+		printf("%s\n\n", request);
+		/* Forgot how to use string tokenizer followed this link: https://www.geeksforgeeks.org/strtok-strtok_r-functions-c-examples/ */
+		char * typeOfMessage = strtok(request, ",");
+		char * token = strtok(NULL, ",");
+		char * username = token;
+		token = strtok(NULL, ",");
+		char * message = token;
+		/* Generate an appropriate reply. */
+
+		switch (typeOfMessage[0]) {
+
+			/*This case registers the username of the client.*/
+		case 'U':
+			;
+			int firstUser = 1;
+			for (int index = 0; index < CONNECTIONS; index++) {
+				if (userList[index].socketId != -1) {
+					firstUser = 0;
+					break;
+				}
+			}
+
+			/*If no users are in the file then we know that this client is the first one in the chat.*/
+			if (firstUser == 1) {
+
+				sprintf(s, "You are the first user in the chat.\n");
+				strcpy(userList[0].username, username);
+				userList[0].socketId = currentfd;
+				userList[0].ssl = sslConnection[i];
+				printf("FIRST USER\n");
+				printf("%s", s);
+
+				if (SSL_write(userList[0].ssl, s, MAX) <= 0) {
+					ERR_print_errors_fp(stdout);
+				}
+				printf("Written.\n");
+
+			}
+			else {
+				/*Goes through list of users and makes sure the username is not taken.*/
+
+				if (findUser(userList, username) == 0) {
+					/*Creates the welcome message for a new user*/
+					sprintf(s, message);
+					strcat(s, " has joined the chat.\n");
+
+					/* Adds the new user to the userList*/
+					for (int index = 0; index < CONNECTIONS; index++) {
+						if (userList[index].socketId == -1) {
+							userList[index].ssl = sslConnection[i];
+							strcpy(userList[index].username, username);
+							userList[index].socketId = currentfd;
+							break;
+						}
+					}
+
+
+					strcpy(buff, message);
+					messageAllUsers(userList, s);
+
+					printf("NEWER USER\n");
+				}
+				else {
+					sprintf(s, "Username already taken.\n");
+					SSL_write(sslConnection[i], s, MAX);
+
+				}
+			}
+
+			/* Send the reply to the client. */
+
+			break;
+
+			/*Once a user is registered they can send messages*/
+		case 'M':
+			;
+			strcpy(s, username);
+
+			strcat(s, ": ");
+			strcat(s, message);
+			printf("GOT A MESSAGE");
+			printf("%s", s);
+			messageAllUsers(userList, s);
+			break;
+			/*When the user ends the client we remove the user from the list and end their socket.*/
+		case 'Q':
+			;
+			printf("SOMEONE WANTS TO QUIT\n\n");
+			int found = 0;
+			/* Go through the userlist and remove the user*/
+			for (int index = 0; index < CONNECTIONS; index++) {
+				if (userList[index].socketId == i) {
+					strcpy(s, userList[index].username);
+					printf("REMOVING USER\n");
+					strcat(s, ": ");
+					strcat(s, message);
+					printf("%s", s);
+					messageAllUsers(userList, s);
+					close(currentfd);
+					FD_CLR(currentfd, &readfds);
+					SSL_CTX_free(SSL_get_SSL_CTX(userList[index].ssl));
+					strcpy(userList[index].username, "");
+					userList[index].socketId = -1;
+				}
+			}
+
+
+			/*Make sure we have the maximum file descriptor*/
+			maxfds = 0;
+			for (int index = 0; index < CONNECTIONS; index++) {
+				if (userList[index].socketId > maxfds) {
+					maxfds = userList[i].socketId;
+				}
+			}
+
+			/* Check to see if we have no users*/
+			int emptyServer = 1;
+			for (int index = 0; index < CONNECTIONS; index++) {
+				if (userList[index].socketId > 0) {
+					emptyServer = 0;
+					break;
+				}
+			}
+
+			/*Close down the Server and remove it from directory*/
+			if (emptyServer == 0) {
+				/* Set up the address of the server to be contacted. */
+
+				strcpy(buff, "Q,");
+				strcat(buff, topic);
+				strcat(buff, ",");
+				strcat(buff, topic);
+				SSL_write(ssldir, buff, MAX);
+				close(directoryfd);
+				SSL_CTX_free(ctxdir);
+				exit(0);
+			}
+
+
+
+			break;
+		default: strcpy(s, "Invalid request\n");
+			SSL_write(userList[i].ssl, s, MAX);
+			break;
+		}
+
+}
+
 
 /*Send a chat message to all users on the chat server*/
 void messageAllUsers(User * userList, char message[255]) {

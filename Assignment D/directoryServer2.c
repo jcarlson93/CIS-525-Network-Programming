@@ -19,6 +19,7 @@ Chat directory
 #include <openssl/ssl.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <pthread.h> /*For help on threads I used this example: https://www.geeksforgeeks.org/multithreading-c-2/*/
 
 #define MAX 10000
 #define CONNECTIONS 100

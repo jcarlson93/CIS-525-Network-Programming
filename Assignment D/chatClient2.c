@@ -120,7 +120,6 @@ int main()
 	char				topic[MAX] = "l"; /*The topic of the chat server. It is initally set to l so the client will view all the servers connnected to the directory */
 	char				message[MAX] = { '\0' }; /* Any message that is read in from the server that the user is connnected to*/
 	char *				chatServer[MAX] = { '\0' }; /*This string will hold the server information for the chat Server*/
-	fd_set				readfds; /* File descriptor set that holds all file descriptors that need to be procesed*/
 	User *				user;
 
 	//SSL *				sslchat; /* SSL Connection that connects to the chat server*/
@@ -131,8 +130,6 @@ int main()
 
 	/*Initailizing reader integer and the File Descriptor Set, readfds */
 	nread = 0; 
-
-	FD_ZERO(&readfds);
 
 
 	int n, len;
@@ -178,8 +175,6 @@ int main()
 	ShowCerts(ssldir, "directory");
 	printf("Showing Certs. \n");
 	
-	/* Add the directory file descriptor to the file descriptor set*/
-	FD_SET(directoryfd, &readfds);
 
 
 	/* Read in infromation from the directory server */
