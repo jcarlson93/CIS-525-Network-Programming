@@ -29,11 +29,14 @@ char * get_message(void);
 char * get_username(char *);
 char * get_topic(void);
 int readn(int, char *, int);
-void recieveChatMessage(SSL * chatSsl);
+void recieveChatMessage(User * user);
 void sendChatMessage(User  * user);
 
+
+int					endChatSession = 0;
+
 /* needToCloseConnection is used by the sigint handler to figure out which connection needs to be closed.*/
-int needToCloseConnection = 0;
+int closeConnection = 0;
 
 /*The File descriptor of the chat server that the client connects to*/
 int                 chatfd;
@@ -51,42 +54,8 @@ SSL_CTX *			ctxdir = NULL;
 SSL *				ssldir = NULL;
 
 /*Signal interrupt for SIGINT*/
-void sigintHandler(int sig_num) {
-	char                s[MAX];
-
-	memset(s, 0, MAX);
-
-	/* Closes the SSL Connection to the directory*/
-	if (needToCloseConnection == 1) {
-		SSL_shutdown(ssldir);
-		exit(0);
-
-	}
-	else if(needToCloseConnection == 2){
-		/* Closes the connection to the chat server */
-		memset(s, 0, MAX);
-		strcpy(s, "Q,");
-		strcat(s, "NONE");
-		strcat(s, ",");
-		strcat(s, "Good Bye!");
-		SSL_write(chatSsl, s, MAX);
-
-		int nread = 0;
-
-		nread = SSL_read(chatSsl, s, MAX);
-		if (nread > 0) {
-			printf(s);
-
-		}
-
-		close(chatfd);
-		SSL_CTX_free(chatCtx);
-		exit(0);
-	}
-	else {
-		/* If no connection is created the client will exit. */
-		exit(0);
-	}
+void shutdownClient(int sig_num) {
+	closeConnection = 1;
 }
 
 /*This method is used to initialize the context for SSL connections.*/
@@ -149,7 +118,6 @@ int main()
 	struct sockaddr_in	cli_addr, dir_addr, serv_addr; /* All the socket addresses of the client, directory, and chat server */
 	char                s[MAX] = { '\0' }; /*String that is used to send information between the server and client*/
 	char				topic[MAX] = "l"; /*The topic of the chat server. It is initally set to l so the client will view all the servers connnected to the directory */
-	char				username[MAX] = { '\0' }; /* Any message that is read in from the server that the user is connnected to*/
 	char				message[MAX] = { '\0' }; /* Any message that is read in from the server that the user is connnected to*/
 	char *				chatServer[MAX] = { '\0' }; /*This string will hold the server information for the chat Server*/
 	fd_set				readfds; /* File descriptor set that holds all file descriptors that need to be procesed*/
@@ -204,7 +172,7 @@ int main()
 	}
 	
 	/* If the user needs to close unexpectedly the connection to the directory server will be disconnnected. (Only works sometimes) */
-	needToCloseConnection = 1;
+	//needToCloseConnection = 1;
 
 	/*Show the certificates from the directory to see if it is legit */
 	ShowCerts(ssldir, "directory");
@@ -224,7 +192,7 @@ int main()
 
 
 	/* Start the interrupt so the connnections can be closed if the user needs to leave unexpectedly. */
-	signal(SIGINT, sigintHandler);
+	signal(SIGINT, shutdownClient);
 	
 	/*This while loop keeps the user listing servers until he or she enters a server name.*/
 	while (strcmp(topic, "l") == 0) {
@@ -291,7 +259,7 @@ int main()
 	SSL_CTX_free(ctxdir);
 
 	/*The client is not connected to a connection so we set this variable to 0*/
-	needToCloseConnection = 0;
+	//needToCloseConnection = 0;
 
 	//port = 5925; //These two line are used to help debug the chatServer
 	//strcpy(topic, "cats");
@@ -306,11 +274,11 @@ int main()
 	/* Gather Username from user */
 	while (usernameSet == 0) {
 
-		strcpy(username, get_username(topic));
+		strcpy(user->username, get_username(topic));
 		strcpy(s, "U,");
-		strcat(s, username);
+		strcat(s, user->username);
 		strcat(s, ",");
-		strcat(s, username); /* This is building the message from the user to say the username and to say a username is being sent */
+		strcat(s, user->username); /* This is building the message from the user to say the username and to say a username is being sent */
 	
 		/* Create a socket (an endpoint for communication). */
 		if ((chatfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -345,7 +313,7 @@ int main()
 		ShowCerts(user->ssl, topic);
 
 		/*The client is now connected to the chatServer so we set this variable to 2 for the interrupt*/
-		needToCloseConnection = 2;
+		//needToCloseConnection = 2;
 
 		/*See how much is written by the chat server*/
 		int numWrote = SSL_write(user->ssl, s, MAX);
@@ -368,56 +336,57 @@ int main()
 		}
 	}
 
-
-
-	/*
-  * We fork here because the user has a username and will need a child process to handle gather messages from other users.
-  */
-	
-
-	//retval = fork();
-	//if (retval == -1) {
-	//	perror("Fork failed");
-	//	exit(1);
-	//}
-	strcpy(user->username, username);
-	if ((pthread_create(&recieveMessage, NULL, recieveChatMessage, chatSsl)  != 0)) {
-		perror("Creating recieve Message Thread failed!\n");
-			exit(1);
-	}
-
 	/* We can only pass one parameter so to solve that we must use a struct. I followed this example: http://www.cse.cuhk.edu.hk/~ericlo/teaching/os/lab/9-PThread/Pass.html*/
 	if ((pthread_create(&sendMessage, NULL, sendChatMessage, user) != 0)) {
 		perror("Creating Send Message Thread failed!\n");
 		exit(1);
 	}
 
-	retval = 1;
-
-	for (;;) {
-
-		
+	if ((pthread_create(&recieveMessage, NULL, recieveChatMessage, user) != 0)) {
+		perror("Creating recieve Message Thread failed!\n");
+		exit(1);
 	}
 
+	while (closeConnection == 0) {
+
+	}
 	/* End connection to the chat Server and clean up. (This shouldn't happen)*/
+		/* Closes the connection to the chat server */
+
+	memset(s, 0, MAX);
+	strcpy(s, "Q,");
+	strcat(s, "NONE");
+	strcat(s, ",");
+	strcat(s, "Good Bye!");
+	SSL_write(chatSsl, s, MAX);
+
+	nread = 0;
+
+	nread = SSL_read(chatSsl, s, MAX);
+	if (nread > 0) {
+		printf(s);
+
+	}
+
 	close(chatfd);
-	SSL_free(user->ssl);
-	SSL_CTX_free(ctxchat);
+	SSL_CTX_free(chatCtx);
 	return 0;
 }
 
 void sendChatMessage(User  * user) {
 	char			s[MAX] = { '\0' };
-	char			message[MAX] = { '\0' };
+	char *			message[MAX] = { '\0' };
 	
 	for (;;) {
-		/* The parent will focus on gathering input from the user to send messages*/
+		/* This thread will focus on gathering input from the user to send messages*/
 		strcpy(message, get_message());
 		strcpy(s, "M,");
 		strcat(s, user->username);
 		strcat(s, ",");
 		strcat(s, message); /* This is building the message from the user to say the username and to say a username is being sent */
 
+
+				
 		/* Send the message to server */
 		SSL_write(user->ssl, s, sizeof(char) * 257);
 		/*257 is 255 (The max size of the message) + the size of "M," which is 2 * sizeof(char)which is 2 * sizeof(char) */
@@ -431,21 +400,22 @@ void sendChatMessage(User  * user) {
 	}
 }
 
-void recieveChatMessage(SSL * chatSsl) {
+void recieveChatMessage(User * user) {
 	int				nread = 0;
-	char			s[MAX] = { '\0' };
-	printf("MADE IT\n");
+	char			s[MAX];
+	
+	memset(s, 0, MAX);
+	
 
-	for (;;) {
 		/* Read the server's response. */
-		nread = SSL_read(chatSsl, s, MAX);
-		//printf("%d", nread);
-		if (nread > 0) {
-			printf("\n\n==================================\n");
-			printf(s);
-			printf("==================================\n");
-		}
-	}
+		for(;;){
+						nread = SSL_read(user->ssl, s, MAX);
+						if (nread > 0) {
+							printf("\n\n==================================\n");
+							printf(s);
+							printf("==================================\n");
+						}
+			}
 }
 
 /* gets the username from the client */
