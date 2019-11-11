@@ -32,6 +32,9 @@ Chat Server
 /* IBM also has info on SSL: https://developer.ibm.com/tutorials/l-openssl/ */
 
 
+int closeDirectoryConnection = 0;
+
+
 /* The header files helped to define fork process because I was having issues.*/
 int close(int);
 unsigned int sleep(unsigned int);
@@ -151,11 +154,29 @@ typedef struct User {
 	SSL *					ssl;
 } User;
 
+typedef struct Listener {
+	User * userList;
+	SSL ** sslConnection;
+	int listenfd;
+	char * certName;
+	struct sockaddr_in client_addr;
+
+} Listener;
+
+typedef struct ClientThread {
+	User *	userList;
+	SSL **	sslConnection;
+	int		sslIndex;
+
+} ClientThread;
+
 /*Method definitions please see below Main for each method's purpose*/
 void addUserToList(User * userList, char username[53], int sockID, SSL * ssl);
 int findUser(User * userList,char username[53]);
 void messageAllUsers(User * userList, char message[255]);
 void removeUser(User * userList, char username[53]);
+void newConnection(Listener * listenerData);
+void clientRequest(ClientThread * clientThreadData);
 
 /* For using select I decided to use this link https://www.geeksforgeeks.org/socket-programming-in-cc-handling-multiple-clients-on-server-without-multi-threading/ */
 
@@ -163,7 +184,7 @@ void main(int argc, char **argv)
 {
 	int                 sockfd, newsockfd, directoryfd, childpid, nread, maxsocketdesc, selection, maxfds ;
 	SSL*				ssl; /* Used for listener socket*/
-	SSL *				newssl; /* Used for incoming SSL Connections */
+
 	SSL **				sslConnection; /*List of all SSL Connections*/
 	struct sockaddr_in	dir_addr; /* Used for connection to the directory */
 	unsigned int	clilen;
@@ -175,9 +196,14 @@ void main(int argc, char **argv)
 	fd_set				readfds; /* List of all file descriptors */
 	SSL_CTX *			ctx; /* Used for establishing context for listener connection*/
 	SSL_CTX *			ctxdir; /* Creates a context for SSL Connection to directory*/
-	SSL_CTX *			newctx; /* Used for incoming SSL Connections */
+	
 	SSL *				ssldir; /* Creates an ssl connection to directory */
+	
+	Listener *			listenerData;
 	pthread_t			listenerThread;
+
+
+	listenerData = (Listener *)malloc(sizeof(Listener));
 
 	sslConnection = NULL;
 
@@ -323,59 +349,98 @@ void main(int argc, char **argv)
 	sslConnection[0] = ssl;
 	ShowCerts(sslConnection[0]);
 
+
+	listenerData->certName = certName;
+	listenerData->listenfd = sockfd;
+	listenerData->sslConnection = sslConnection;
+	listenerData->userList = userList;
+	listenerData->client_addr = cli_addr;
+
 	/* Creating threads for listener*/
 	/* The threadInfo object will hold all the information that is needed for the listener to perform its duties.*/
-	if ((pthread_create(&listener, NULL, listenerThread, threadInfo) != 0)) {
+	if ((pthread_create(&listenerThread, NULL, newConnection, listenerData) != 0)) {
 		perror("Creating recieve Message Thread failed!\n");
 		exit(1);
 	}
 
 	printf("Before for loop");
-	while (1) {
+	while (closeDirectoryConnection == 0) {
 
 	}
+
+	/* Set up the address of the server to be contacted. */
+
+	strcpy(buff, "Q,");
+	strcat(buff, topic);
+	strcat(buff, ",");
+	strcat(buff, topic);
+	SSL_write(ssldir, buff, MAX);
+	close(directoryfd);
+	SSL_CTX_free(ctxdir);
+	close(sockfd);
+	SSL_CTX_free(ssl);
+	return 0;
 }
 
-void listener() {
-	/* Accept a new connection request. */
-	printf("ACCEPTING");
-	clilen = sizeof(cli_addr);
-	newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+void newConnection(Listener * listenerData) {
+	unsigned int		clilen;
+	int					newsockfd;
+	SSL_CTX *			newctx; /* Used for incoming SSL Connections */
+	SSL *				newssl; /* Used for incoming SSL Connections */
+	pthread_t			connection;
+	ClientThread *		clientThreadData;
+
+	clientThreadData = (ClientThread *)malloc(sizeof(ClientThread));
+
+	for (;;)
+	{
+		/* Accept a new connection request. */
+		printf("ACCEPTING");
+		clilen = sizeof(listenerData->client_addr);
+		newsockfd = accept(listenerData->listenfd, (struct sockaddr *) &(listenerData->client_addr), &clilen);
 
 
-	/* Once a new accept has happened we create a new SSL connection using the ctx context*/
-	newctx = InitServerCTX();
-	LoadCerts(newctx, certName, certName);
+		/* Once a new accept has happened we create a new SSL connection using the ctx context*/
+		newctx = InitServerCTX();
+		LoadCerts(newctx, listenerData->certName, listenerData->certName);
 
-	newssl = SSL_new(newctx);
-	SSL_set_fd(newssl, newsockfd);
+		newssl = SSL_new(newctx);
+		SSL_set_fd(newssl, newsockfd);
 
-	/* try to accept using ssl */
-	if (SSL_accept(newssl) <= 0) {
-		ERR_print_errors_fp(stdout);
-	}
-	ShowCerts(newssl);
-	printf("AFTER CERT");
+		/* try to accept using ssl */
+		if (SSL_accept(newssl) <= 0) {
+			ERR_print_errors_fp(stdout);
+		}
+		
+		ShowCerts(newssl);
+		printf("AFTER CERT");
 
-	/* Find an open SSL Connection in the list to add the new connection */
-	for (int index = 0; index < CONNECTIONS; index++) {
-		if (sslConnection[index] == NULL) {
-			sslConnection[index] = newssl;
-			printf("Found a spot!");
-			FD_SET(newsockfd, &readfds);
-			if (newsockfd > maxfds) {
-				maxfds = newsockfd;
+		/* Find an open SSL Connection in the list to add the new connection */
+		for (int index = 0; index < CONNECTIONS; index++) {
+			if (listenerData->sslConnection[index] == NULL) {
+				listenerData->sslConnection[index] = newssl;
+				printf("ADDING NEW CONNECTION\n");
+				clientThreadData->sslConnection = newssl;
+				clientThreadData->sslIndex = index;
+				clientThreadData->userList = listenerData->userList;
+				break;
 			}
+		}
 
-			printf("ADDING NEW CONNECTION\n");
-			break;
+		if ((pthread_create(&connection, NULL, clientRequest, clientThreadData) != 0)) {
+			perror("Creating recieve Message Thread failed!\n");
+			exit(1);
 		}
 	}
 }
 
-void clientRequest() {
+void clientRequest(ClientThread * clientThreadData) {
+	char		request[MAX];
+	char		s[MAX];
+	char		buff[MAX];
 
-		SSL_read(sslConnection[i], request, MAX);
+	for (;;) {
+		SSL_read(clientThreadData->sslConnection[clientThreadData->sslIndex], request, MAX);
 
 		printf("Reading Request\n");
 		printf("%s\n\n", request);
@@ -387,6 +452,7 @@ void clientRequest() {
 		char * message = token;
 		/* Generate an appropriate reply. */
 
+		int currentfd = SSL_get_fd(clientThreadData->sslConnection[clientThreadData->sslIndex]);
 		switch (typeOfMessage[0]) {
 
 			/*This case registers the username of the client.*/
@@ -394,7 +460,7 @@ void clientRequest() {
 			;
 			int firstUser = 1;
 			for (int index = 0; index < CONNECTIONS; index++) {
-				if (userList[index].socketId != -1) {
+				if (clientThreadData->userList[index].socketId != -1) {
 					firstUser = 0;
 					break;
 				}
@@ -404,13 +470,13 @@ void clientRequest() {
 			if (firstUser == 1) {
 
 				sprintf(s, "You are the first user in the chat.\n");
-				strcpy(userList[0].username, username);
-				userList[0].socketId = currentfd;
-				userList[0].ssl = sslConnection[i];
+				strcpy(clientThreadData->userList[0].username, username);
+				clientThreadData->userList[0].socketId = SSL_get_fd(currentfd);
+				clientThreadData->userList[0].ssl = clientThreadData->sslConnection[clientThreadData->sslIndex];
 				printf("FIRST USER\n");
 				printf("%s", s);
 
-				if (SSL_write(userList[0].ssl, s, MAX) <= 0) {
+				if (SSL_write(clientThreadData->userList[0].ssl, s, MAX) <= 0) {
 					ERR_print_errors_fp(stdout);
 				}
 				printf("Written.\n");
@@ -419,30 +485,30 @@ void clientRequest() {
 			else {
 				/*Goes through list of users and makes sure the username is not taken.*/
 
-				if (findUser(userList, username) == 0) {
+				if (findUser(clientThreadData->userList, username) == 0) {
 					/*Creates the welcome message for a new user*/
 					sprintf(s, message);
 					strcat(s, " has joined the chat.\n");
 
 					/* Adds the new user to the userList*/
 					for (int index = 0; index < CONNECTIONS; index++) {
-						if (userList[index].socketId == -1) {
-							userList[index].ssl = sslConnection[i];
-							strcpy(userList[index].username, username);
-							userList[index].socketId = currentfd;
+						if (clientThreadData->userList[index].socketId == -1) {
+							clientThreadData->userList[index].ssl = clientThreadData->sslConnection[clientThreadData->sslIndex];
+							strcpy(clientThreadData->userList[index].username, username);
+							clientThreadData->userList[index].socketId = currentfd;
 							break;
 						}
 					}
 
 
 					strcpy(buff, message);
-					messageAllUsers(userList, s);
+					messageAllUsers(clientThreadData->userList, s);
 
 					printf("NEWER USER\n");
 				}
 				else {
 					sprintf(s, "Username already taken.\n");
-					SSL_write(sslConnection[i], s, MAX);
+					SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
 
 				}
 			}
@@ -460,7 +526,7 @@ void clientRequest() {
 			strcat(s, message);
 			printf("GOT A MESSAGE");
 			printf("%s", s);
-			messageAllUsers(userList, s);
+			messageAllUsers(clientThreadData->userList, s);
 			break;
 			/*When the user ends the client we remove the user from the list and end their socket.*/
 		case 'Q':
@@ -469,34 +535,24 @@ void clientRequest() {
 			int found = 0;
 			/* Go through the userlist and remove the user*/
 			for (int index = 0; index < CONNECTIONS; index++) {
-				if (userList[index].socketId == i) {
-					strcpy(s, userList[index].username);
+				if (clientThreadData->userList[index].socketId == clientThreadData->sslIndex) {
+					strcpy(s, clientThreadData->userList[index].username);
 					printf("REMOVING USER\n");
 					strcat(s, ": ");
 					strcat(s, message);
 					printf("%s", s);
-					messageAllUsers(userList, s);
+					messageAllUsers(clientThreadData->userList, s);
 					close(currentfd);
-					FD_CLR(currentfd, &readfds);
-					SSL_CTX_free(SSL_get_SSL_CTX(userList[index].ssl));
-					strcpy(userList[index].username, "");
-					userList[index].socketId = -1;
-				}
-			}
-
-
-			/*Make sure we have the maximum file descriptor*/
-			maxfds = 0;
-			for (int index = 0; index < CONNECTIONS; index++) {
-				if (userList[index].socketId > maxfds) {
-					maxfds = userList[i].socketId;
+					SSL_CTX_free(SSL_get_SSL_CTX(clientThreadData->userList[index].ssl));
+					strcpy(clientThreadData->userList[index].username, "");
+					clientThreadData->userList[index].socketId = -1;
 				}
 			}
 
 			/* Check to see if we have no users*/
 			int emptyServer = 1;
 			for (int index = 0; index < CONNECTIONS; index++) {
-				if (userList[index].socketId > 0) {
+				if (clientThreadData->userList[index].socketId > 0) {
 					emptyServer = 0;
 					break;
 				}
@@ -504,26 +560,17 @@ void clientRequest() {
 
 			/*Close down the Server and remove it from directory*/
 			if (emptyServer == 0) {
-				/* Set up the address of the server to be contacted. */
-
-				strcpy(buff, "Q,");
-				strcat(buff, topic);
-				strcat(buff, ",");
-				strcat(buff, topic);
-				SSL_write(ssldir, buff, MAX);
-				close(directoryfd);
-				SSL_CTX_free(ctxdir);
-				exit(0);
+				closeDirectoryConnection = 1;
 			}
 
 
 
 			break;
 		default: strcpy(s, "Invalid request\n");
-			SSL_write(userList[i].ssl, s, MAX);
+			SSL_write(clientThreadData->userList[clientThreadData->sslIndex].ssl, s, MAX);
 			break;
 		}
-
+	}
 }
 
 
