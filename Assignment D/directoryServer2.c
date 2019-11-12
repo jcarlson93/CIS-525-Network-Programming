@@ -39,6 +39,22 @@ typedef struct Server {
 } Server;
 
 
+typedef struct Listener {
+	Server * serverList;
+	SSL ** sslConnection;
+	int listenfd;
+	struct sockaddr_in cli_addr;
+
+} Listener;
+
+typedef struct ClientThread {
+	Server *	serverList;
+	SSL **	sslConnection;
+	int		sslIndex;
+
+} ClientThread;
+
+
 /*This method is used to initialize the context for SSL connections.*/
 SSL_CTX * InitServerCTX(void) {
 
@@ -81,7 +97,19 @@ void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile) {
 }
 /* This method sends the cert to the client for them to make sure they are connecting to the right server*/
 void ShowCerts(SSL * ssl) {
-	printf("No Cert!!!\n");
+	X509 * cert;
+	char *line;
+
+	cert = SSL_get_peer_certificate(ssl);
+	if (cert != NULL) {
+		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+		printf("Subject: %s\n", line);
+		free(line);
+		X509_free(cert);
+	}
+	else {
+		printf("No Cert!!!\n");
+	}
 }
 
 /* Method declaration for the method to add servers to the directory's server list */
@@ -93,6 +121,10 @@ int findServer(Server * serverList, char topic[53]);
 /* Method declaration for removing an SSL Connection*/
 void removeSSLConnection(int fd, SSL ** sslList);
 
+void newConnection(Listener * listenerData);
+
+void clientRequest(ClientThread * clientThreadData);
+
 
 int main()
 {
@@ -102,16 +134,15 @@ int main()
 	char				request[MAX] = { '\0' };
 	Server *			serverList;
 	SSL **				sslConnection;
-	fd_set				readfds;
 	SSL_CTX *			ctx;
 	SSL_CTX *			newctx;
 	SSL *				ssl;
 	SSL *				newssl;
+	Listener *			listenerData;
+	pthread_t			listenerThread;
 
 	/* Initializing OpenSSL */
 	SSL_library_init();
-	ctx = InitServerCTX();
-	LoadCerts(ctx, "./directoryPEM", "./directoryPEM");
 
 	/*Initializes the lists that will hold server information and ssl connections respectively*/
 	serverList = calloc(CONNECTIONS, sizeof(Server));
@@ -155,274 +186,255 @@ int main()
 
 	/* Creates the listener's ssl connection*/
 	ssl = SSL_new(ctx);
-
 	/* Adding listener to list of SSL Connections*/
-	SSL_set_fd(ssl, listenerfd);
 	sslConnection[0] = ssl;
 	ShowCerts(sslConnection[0]);
+	printf("SHOWN CERTS");
+	listenerData = (Listener *) malloc(sizeof(Listener));
+	
+	listenerData->listenfd = listenerfd;
+	listenerData->serverList = serverList;
+	listenerData->sslConnection = sslConnection;
+	listenerData->cli_addr = cli_addr;
 
+	if ((pthread_create(&listenerThread, NULL, newConnection, listenerData) != 0)) {
+		perror("Creating Listener thread failed!\n");
+		exit(1);
+	}
 
-
-	for (;;) {
-
-		/* Clears all file descriptors from the set*/
-		FD_ZERO(&readfds);
-		
-		/* Adds the listener to the set of file descripors*/
-		FD_SET(listenerfd, &readfds);
-
-		/* Set the maximum file descriptor to the listener which is 0*/
-		maxfds = listenerfd;
-
-		/* Go through all ssl connections to add their file descriptors to the set*/
-		for (int i = 0; i < CONNECTIONS; i++) {
-
-			if (sslConnection[i] != NULL) {
-				printf("NOT NULL %d\n", i);
-				int sock = SSL_get_fd(sslConnection[i]);
-				FD_SET(sock, &readfds);
-
-				/*Increase the maximum file descriptor if it is bigger than previous maxfds*/
-				if (sock > maxfds) {
-					maxfds = sock;
-				}
-			}
-		}
-
-		printf("STARTING SELECT.\n");
-		
-		/* Select the ready file descriptors*/
-		selection = select(maxfds + 1, &readfds, NULL, NULL, NULL);
-		printf("SELECTING.\n");
-
-		if ((selection < 0) && (errno != EINTR)) {
-			perror("Select messed up.");
-			exit(1);
-		}
-
-
-		/* Go through all SSL Connections */
-		for (int i = 0; i < CONNECTIONS; i++) {
-			/* Skips over all connections that haven't been assigned.*/
-			if (sslConnection[i] == NULL)
-				continue;
-
-			int currentfd = SSL_get_fd(sslConnection[i]);
-
-			if (currentfd == listenerfd) {
-				
-				/* The listener recieves a connection and creates a new file descriptor*/
-				if (FD_ISSET(listenerfd, &readfds)) {
-					printf("Accepting new connnection.\n");
-					/* fd of new connection */
-					newsockfd = accept(currentfd, (struct sockaddr *) &cli_addr, &clilen);
-					if (newsockfd < 0) {
-						perror("Failed to do a normal accept.\n");
-						exit(1);
-					}
-
-					/* Loads the directory's certificate into the new SSL Connection*/
-					newctx = InitServerCTX();
-					LoadCerts(newctx, "./directoryPEM", "./directoryPEM");
-					newssl = SSL_new(newctx);
-
-					if (newssl == NULL) {
-						ERR_print_errors_fp(stdout);
-						exit(1);
-					}
-
-
-					/* Adding new fd to list of SSL Connections*/
-					SSL_set_fd(newssl, newsockfd);
-					FD_SET(newsockfd, &readfds);
-
-					/* Find a place in the SSL Connections array that is empty*/
-					for (int index = 0; index < CONNECTIONS; index++) {
-						printf("ENTERING FOR LOOP.\n");
-						if (sslConnection[index] == NULL) {
-
-							/* Add the new SSL Connection to the array*/
-							sslConnection[index] = newssl;
-							ShowCerts(sslConnection[index]);
-
-							if (SSL_accept(sslConnection[index]) <= 0) {
-								ERR_print_errors_fp(stdout);
-								exit(1);
-							}
-
-							/* Increase the maxmimum file descriptor if needed*/
-							if (newsockfd > maxfds) {
-								maxfds = newsockfd;
-							}
-
-							/* Connection is now connected to the directory */
-							strcpy(s, "Connected to Directory Server!");
-							printf("Accepted connection on index: %d\n", index);
-							SSL_write(newssl, s, MAX);
-							printf("Ended accept.\n");
-							break;
-						}
-
-					}
-				}
-
-			}
-
-			else { /*Need to service a already made connection*/
-
-				/* Checks to see if the current file descriptor needs to be processed*/
-				if (FD_ISSET(currentfd, &readfds)) {
-					printf("Reading Request\n");
-					
-					/* Read in the request */
-					if (SSL_read(sslConnection[i], request, MAX) <= 0) {
-						printf("Unable to read\n");
-					}
-
-					
-					printf("%s\n", request);
-
-					/* Forgot how to use string tokenizer followed this link: https://www.geeksforgeeks.org/strtok-strtok_r-functions-c-examples/ */
-					char * typeOfMessage = strtok(request, ",");
-					char * token = strtok(NULL, ",");
-					char * username = token;
-					token = strtok(NULL, ",");
-					char * topic = token;
-
-					/* Generate an appropriate reply. */
-
-					switch (typeOfMessage[0]) {
-
-						/*This case finds the server info for the user.*/
-					case 'N':
-						;
-
-						int isfound = findServer(serverList, topic);
-						
-						if (isfound == 1) {
-							/*Joins the already created server.*/
-							sprintf(s, "Joining Server.\n");
-							printf("Connecting to server");
-
-							for (int index = 0; index < CONNECTIONS; index++) {
-								if (strcmp(serverList[index].topic, topic) == 0) {
-									port = serverList[index].port;
-									break;
-								}
-							}
-
-							sprintf(s, "Server found at port:%d", port);
-
-							/* Send server information to client */
-							SSL_write(sslConnection[i], s, MAX);
-							removeSSLConnection(i, sslConnection);
-
-						}
-						else {
-
-							/* A server could not be found and tell user*/
-							sprintf(s, "Server not Found.");
-							SSL_write(sslConnection[i], s, MAX);
-						}
-
-						break;
-
-					/* This case is so the user can see all servers connnected to the directory*/
-					case 'L':
-						;
-						memset(s, 0, MAX);
-
-						/* Go through the list of servers and send them to the user */
-						for (int i = 0; i < 100; i++) {
-							if (strcmp(serverList[i].topic, "") != 0) {
-								strcat(s, serverList[i].topic);
-								strcat(s, "\n");
-							}
-						}
-
-						SSL_write(sslConnection[i], s, MAX);
-						
-						break;
-
-					/* This case is if a user needs to be removed from the directory (Tends to cause segfaults) */
-					case 'C':
-						;
-						strcpy(s, "Good Bye!");
-						SSL_write(sslConnection[i], s, MAX);
-						removeSSLConnection(i, sslConnection);
-
-						break;
-
-					/* This case s if a server is created and connects to the directory*/
-					case 'S':
-						;
-						
-						char * nameofServer = username;
-					
-						port = 0;
-						memset(s, 0, MAX);
-
-						/* Find an empty spot in the ServerList to add the server */
-
-						for (int index = 0; index < CONNECTIONS; index++) {
-							if (strcmp(serverList[index].topic, "") == 0) {
-								strcpy(serverList[index].topic,  nameofServer);
-								for (int digit = 0; digit < strlen(topic); digit++) {
-									port = port * 10 + (topic[digit] - '0');
-								}
-								
-								serverList[index].port = port;
-
-								/*Send over a confirmation to the server that the connection to the directory has been made */
-								strcpy(s, "Created Server on Directory");
-								SSL_write(sslConnection[i], s, MAX);
-								printf("Server created at index: %d and on port %d\n\n\n", index, serverList[index].port);
-								break;
-
-							}
-						}
-
-						break;
-
-						/* This case is if a server needs to disconnect and needs to be removed from Server List */
-					case 'Q':
-						;
-						
-						/* This function removes the current socket being processed from the list of SSL Connections */
-						removeSSLConnection(i, sslConnection);
-
-						/* The below look removes the server from the server list */
-						int index = 0;
-						while (index < 100) {
-
-							if (strncmp(topic, serverList[index].topic, strlen(serverList[index].topic)) == 0) {
-								serverList[index].port = -1;
-								serverList[index].sockfd = -1;
-								serverList[index].ssl = NULL;
-								strcpy(serverList[i].topic, "");
-								bzero(serverList[index].topic, strlen(serverList[index].topic));
-								break;
-							}
-
-							index++;
-						}
-
-						break;
-
-					/* This case is if someone enters a type of message that cannot be processed (This will not occur by the client or server) */
-					default: strcpy(s, "Invalid request\n");
-						SSL_write(sslConnection[i], s, MAX);
-						
-						break;
-
-					}
-				}
-			}
-		}
-
+	while (1) {
 
 	}
 
+
+}
+
+void newConnection(Listener * listenerData) {
+	unsigned int		clilen;
+	int					newsockfd;
+	SSL_CTX *			newctx; /* Used for incoming SSL Connections */
+	SSL *				newssl; /* Used for incoming SSL Connections */
+	pthread_t			connectionThread;
+	ClientThread *		clientThreadData;
+	char				s[MAX];
+
+	for (;;) {
+		clientThreadData = (ClientThread *)malloc(sizeof(ClientThread));
+		/* The listener recieves a connection and creates a new file descriptor*/
+		printf("Accepting new connnection.\n");
+
+		
+		clilen = sizeof(listenerData->cli_addr);
+
+		/* fd of new connection */
+		newsockfd = accept(listenerData->listenfd, (struct sockaddr *) &listenerData->cli_addr, &clilen);
+		if (newsockfd < 0) {
+			perror("Failed to do a normal accept.\n");
+			exit(1);
+		}
+
+		/* Loads the directory's certificate into the new SSL Connection*/
+		newctx = InitServerCTX();
+		LoadCerts(newctx, "./directoryPEM", "./directoryPEM");
+		newssl = SSL_new(newctx);
+
+		if (newssl == NULL) {
+			ERR_print_errors_fp(stdout);
+			exit(1);
+		}
+
+		/* Adding new fd to list of SSL Connections*/
+		SSL_set_fd(newssl, newsockfd);
+
+		/* Find a place in the SSL Connections array that is empty*/
+		for (int index = 0; index < CONNECTIONS; index++) {
+			printf("ENTERING FOR LOOP.\n");
+			if (listenerData->sslConnection[index] == NULL) {
+
+				/* Add the new SSL Connection to the array*/
+				listenerData->sslConnection[index] = newssl;
+				ShowCerts(listenerData->sslConnection[index]);
+
+				if (SSL_accept(listenerData->sslConnection[index]) <= 0) {
+					ERR_print_errors_fp(stdout);
+					exit(1);
+				}
+
+				/* Connection is now connected to the directory */
+				strcpy(s, "Connected to Directory Server!");
+				printf("Accepted connection on index: %d\n", index);
+
+				clientThreadData->sslConnection = listenerData->sslConnection;
+				clientThreadData->sslIndex = index;
+				clientThreadData->serverList = listenerData->serverList;
+
+				SSL_write(newssl, s, MAX);
+
+				if ((pthread_create(&connectionThread, NULL, clientRequest, clientThreadData) != 0)) {
+					perror("Creating recieve Message Thread failed!\n");
+					exit(1);
+				}
+
+				break;
+			}
+		}
+	}
+}
+
+void clientRequest(ClientThread * clientThreadData) {
+	char		request[MAX];
+	char		s[MAX];
+	char		buff[MAX];
+	int			port;
+
+	for (;;) {
+		/* Checks to see if the current file descriptor needs to be processed*/
+		printf("Reading Request\n");
+
+		/* Read in the request */
+		if (SSL_read(clientThreadData->sslConnection[clientThreadData->sslIndex], request, MAX) <= 0) {
+			printf("Unable to read\n");
+		}
+
+
+		printf("%s\n", request);
+
+		/* Forgot how to use string tokenizer followed this link: https://www.geeksforgeeks.org/strtok-strtok_r-functions-c-examples/ */
+		char * typeOfMessage = strtok(request, ",");
+		char * token = strtok(NULL, ",");
+		char * username = token;
+		token = strtok(NULL, ",");
+		char * topic = token;
+
+		/* Generate an appropriate reply. */
+
+		switch (typeOfMessage[0]) {
+
+			/*This case finds the server info for the user.*/
+		case 'N':
+			;
+
+			int isfound = findServer(clientThreadData->serverList, topic);
+
+			if (isfound == 1) {
+				/*Joins the already created server.*/
+				sprintf(s, "Joining Server.\n");
+				printf("Connecting to server");
+
+				for (int index = 0; index < CONNECTIONS; index++) {
+					if (strcmp(clientThreadData->serverList[index].topic, topic) == 0) {
+						port = clientThreadData->serverList[index].port;
+						break;
+					}
+				}
+
+				sprintf(s, "Server found at port:%d", port);
+
+				/* Send server information to client */
+				SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
+				removeSSLConnection(clientThreadData->sslIndex, clientThreadData->sslConnection);
+
+			}
+			else {
+
+				/* A server could not be found and tell user*/
+				sprintf(s, "Server not Found.");
+				SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
+			}
+
+			break;
+
+			/* This case is so the user can see all servers connnected to the directory*/
+		case 'L':
+			;
+			memset(s, 0, MAX);
+
+			/* Go through the list of servers and send them to the user */
+			for (int i = 0; i < CONNECTIONS; i++) {
+				if (strcmp(clientThreadData->serverList[i].topic, "") != 0) {
+					strcat(s, clientThreadData->serverList[i].topic);
+					strcat(s, "\n");
+				}
+				printf("GOING THROUGH INDEX: %d", &index);
+			}
+
+			SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
+
+			break;
+
+			/* This case is if a user needs to be removed from the directory (Tends to cause segfaults) */
+		case 'C':
+			;
+			strcpy(s, "Good Bye!");
+			SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
+			removeSSLConnection(clientThreadData->sslIndex, clientThreadData->sslConnection);
+
+			break;
+
+			/* This case s if a server is created and connects to the directory*/
+		case 'S':
+			;
+
+			char * nameofServer = username;
+
+			port = 0;
+			memset(s, 0, MAX);
+
+			/* Find an empty spot in the ServerList to add the server */
+
+			for (int index = 0; index < CONNECTIONS; index++) {
+				if (strcmp(clientThreadData->serverList[index].topic, "") == 0) {
+					strcpy(clientThreadData->serverList[index].topic, nameofServer);
+					for (int digit = 0; digit < strlen(topic); digit++) {
+						port = port * 10 + (topic[digit] - '0');
+					}
+
+					clientThreadData->serverList[index].port = port;
+
+					/*Send over a confirmation to the server that the connection to the directory has been made */
+					strcpy(s, "Created Server on Directory");
+					SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
+					printf("Server created at index: %d and on port %d\n\n\n", index, clientThreadData->serverList[index].port);
+					break;
+
+				}
+			}
+
+			break;
+
+			/* This case is if a server needs to disconnect and needs to be removed from Server List */
+		case 'Q':
+			;
+
+			/* This function removes the current socket being processed from the list of SSL Connections */
+			removeSSLConnection(clientThreadData->sslIndex, clientThreadData->sslConnection);
+
+			/* The below look removes the server from the server list */
+			int index = 0;
+			while (index < 100) {
+
+				if (strncmp(topic, clientThreadData->serverList[index].topic, strlen(clientThreadData->serverList[index].topic)) == 0) {
+					clientThreadData->serverList[index].port = -1;
+					clientThreadData->serverList[index].sockfd = -1;
+					clientThreadData->serverList[index].ssl = NULL;
+					strcpy(clientThreadData->serverList[clientThreadData->sslIndex].topic, "");
+					bzero(clientThreadData->serverList[index].topic, strlen(clientThreadData->serverList[index].topic));
+					break;
+				}
+
+				index++;
+			}
+
+			break;
+
+			/* This case is if someone enters a type of message that cannot be processed (This will not occur by the client or server) */
+		default: strcpy(s, "Invalid request\n");
+			SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
+
+			break;
+
+		}
+	}
 }
 
 /* Returns if the server exists returns either NULL or the server info*/

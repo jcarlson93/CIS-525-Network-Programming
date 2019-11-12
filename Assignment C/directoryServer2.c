@@ -80,7 +80,20 @@ void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile) {
 }
 /* This method sends the cert to the client for them to make sure they are connecting to the right server*/
 void ShowCerts(SSL * ssl) {
-	printf("No Cert!!!\n");
+	SSL_METHOD * method;
+	SSL_CTX *ctx;
+
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+	method = SSLv23_server_method();
+	ctx = SSL_CTX_new(method);
+
+	if (ctx == NULL) {
+		perror("Cannot create context");
+		exit(1);
+	}
+	printf("Created a context.\n");
+	return ctx;
 }
 
 /* Method declaration for the method to add servers to the directory's server list */
