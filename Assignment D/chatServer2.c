@@ -308,7 +308,7 @@ void main(int argc, char **argv)
 	userList = calloc(CONNECTIONS, sizeof(User));
 	sslConnection = calloc(CONNECTIONS, sizeof(SSL*));
 
-	for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < CONNECTIONS; i++) {
 		userList[i].socketId = -1;
 		userList[i].ssl = NULL;
 		strcpy(userList[i].username, "");
@@ -387,13 +387,14 @@ void newConnection(Listener * listenerData) {
 	int					newsockfd;
 	SSL_CTX *			newctx; /* Used for incoming SSL Connections */
 	SSL *				newssl; /* Used for incoming SSL Connections */
-	pthread_t			connection;
+	pthread_t			connectionThread;
 	ClientThread *		clientThreadData;
 
-	clientThreadData = (ClientThread *)malloc(sizeof(ClientThread));
+	
 
 	for (;;)
 	{
+		clientThreadData = (ClientThread *)malloc(sizeof(ClientThread));
 		/* Accept a new connection request. */
 		printf("ACCEPTING");
 		clilen = sizeof(listenerData->client_addr);
@@ -420,17 +421,21 @@ void newConnection(Listener * listenerData) {
 			if (listenerData->sslConnection[index] == NULL) {
 				listenerData->sslConnection[index] = newssl;
 				printf("ADDING NEW CONNECTION\n");
-				clientThreadData->sslConnection = newssl;
+				clientThreadData->sslConnection = listenerData->sslConnection;
 				clientThreadData->sslIndex = index;
 				clientThreadData->userList = listenerData->userList;
+				
+
+				if ((pthread_create(&connectionThread, NULL, clientRequest, clientThreadData) != 0)) {
+					perror("Creating recieve Message Thread failed!\n");
+					exit(1);
+				}
+
 				break;
 			}
 		}
 
-		if ((pthread_create(&connection, NULL, clientRequest, clientThreadData) != 0)) {
-			perror("Creating recieve Message Thread failed!\n");
-			exit(1);
-		}
+
 	}
 }
 
@@ -438,7 +443,7 @@ void clientRequest(ClientThread * clientThreadData) {
 	char		request[MAX];
 	char		s[MAX];
 	char		buff[MAX];
-
+	printf("\nENTERED CLIENT THREAD\n");
 	for (;;) {
 		SSL_read(clientThreadData->sslConnection[clientThreadData->sslIndex], request, MAX);
 
@@ -446,13 +451,18 @@ void clientRequest(ClientThread * clientThreadData) {
 		printf("%s\n\n", request);
 		/* Forgot how to use string tokenizer followed this link: https://www.geeksforgeeks.org/strtok-strtok_r-functions-c-examples/ */
 		char * typeOfMessage = strtok(request, ",");
+
+
 		char * token = strtok(NULL, ",");
 		char * username = token;
+
 		token = strtok(NULL, ",");
 		char * message = token;
+
 		/* Generate an appropriate reply. */
 
 		int currentfd = SSL_get_fd(clientThreadData->sslConnection[clientThreadData->sslIndex]);
+
 		switch (typeOfMessage[0]) {
 
 			/*This case registers the username of the client.*/
@@ -465,13 +475,12 @@ void clientRequest(ClientThread * clientThreadData) {
 					break;
 				}
 			}
-
 			/*If no users are in the file then we know that this client is the first one in the chat.*/
 			if (firstUser == 1) {
 
 				sprintf(s, "You are the first user in the chat.\n");
 				strcpy(clientThreadData->userList[0].username, username);
-				clientThreadData->userList[0].socketId = SSL_get_fd(currentfd);
+				clientThreadData->userList[0].socketId = currentfd;
 				clientThreadData->userList[0].ssl = clientThreadData->sslConnection[clientThreadData->sslIndex];
 				printf("FIRST USER\n");
 				printf("%s", s);

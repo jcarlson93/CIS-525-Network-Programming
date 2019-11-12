@@ -266,6 +266,36 @@ int main()
 	user = (User *)malloc(sizeof(User));
 	user->ssl = NULL;
 	memset(user->username, 0, MAX);
+
+	/* Create a socket (an endpoint for communication). */
+	if ((chatfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror("client: can't open stream socket");
+		exit(1);
+	}
+
+	/* Set up the address of the server to be contacted. */
+	memset((char *)&serv_addr, 0, sizeof(serv_addr));
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
+	serv_addr.sin_port = htons(port);
+
+	printf("Connecting.\n");
+
+	/* Connect to the server. */
+	if (connect(chatfd, (struct sockaddr *) &serv_addr,
+		sizeof(serv_addr)) < 0) {
+		perror("client: can't connect to server");
+		exit(1);
+	}
+	printf("Connected.\n");
+
+	/*Create the SSL Connection to the chat server*/
+	user->ssl = SSL_new(chatCtx);
+	SSL_set_fd(user->ssl, chatfd);
+
+	if (SSL_connect(user->ssl) <= 0)			/* perform the connection */
+		perror("Unable to connect with SSL."); //ERR_print_errors_fp(stderr);
+
 	/* Gather Username from user */
 	while (usernameSet == 0) {
 
@@ -274,35 +304,7 @@ int main()
 		strcat(s, user->username);
 		strcat(s, ",");
 		strcat(s, user->username); /* This is building the message from the user to say the username and to say a username is being sent */
-	
-		/* Create a socket (an endpoint for communication). */
-		if ((chatfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-			perror("client: can't open stream socket");
-			exit(1);
-		}
 
-		/* Set up the address of the server to be contacted. */
-		memset((char *)&serv_addr, 0, sizeof(serv_addr));
-		serv_addr.sin_family = AF_INET;
-		serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-		serv_addr.sin_port = htons(port);
-
-		printf("Connecting.\n");
-		
-		/* Connect to the server. */
-		if (connect(chatfd, (struct sockaddr *) &serv_addr,
-			sizeof(serv_addr)) < 0) {
-			perror("client: can't connect to server");
-			exit(1);
-		}
-		printf("Connected.\n");
-
-		/*Create the SSL Connection to the chat server*/
-		user->ssl = SSL_new(chatCtx);
-		SSL_set_fd(user->ssl, chatfd);
-
-		if (SSL_connect(user->ssl) <= 0)			/* perform the connection */
-			perror("Unable to connect with SSL."); //ERR_print_errors_fp(stderr);
 
 		/*Show the certs of the server to make sure they are legit*/
 		ShowCerts(user->ssl, topic);
@@ -321,7 +323,7 @@ int main()
 		if (nread > 0) {
 			printf(s);
 			if (strcmp(s, "Username already taken.\n") == 0) {
-				memset(user->ssl, 0, MAX);
+				usernameSet = 0;
 				
 			}
 			else {
