@@ -19,7 +19,7 @@ Chat directory
 #include <openssl/ssl.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
-#include <pthread.h> /*For help on threads I used this example: https://www.geeksforgeeks.org/multithreading-c-2/*/
+#include <pthread.h> /* For help on threads I used this example: https://www.geeksforgeeks.org/multithreading-c-2/ */
 
 #define MAX 10000
 #define CONNECTIONS 100
@@ -86,7 +86,7 @@ int main()
 	/* Initializing OpenSSL */
 	SSL_library_init();
 
-	/*Initializes the lists that will hold server information and ssl connections respectively*/
+	/* Initializes the lists that will hold server information and ssl connections respectively */
 	serverList = calloc(CONNECTIONS, sizeof(Server));
 	sslConnection = calloc(CONNECTIONS, sizeof(SSL *));
 
@@ -98,7 +98,7 @@ int main()
 	}
 
 
-	/* Create communication endpoint (master socket)*/
+	/* Create communication endpoint (master socket) */
 	if ((listenerfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("server: can't open stream socket");
 		exit(1);
@@ -126,9 +126,9 @@ int main()
 	/* Loads the directory's certificate for SSL connection into the listener's context*/
 	LoadCerts(ctx, "./directoryPEM", "./directoryPEM");
 
-	/* Creates the listener's ssl connection*/
+	/* Creates the listener's ssl connection */
 	ssl = SSL_new(ctx);
-	/* Adding listener to list of SSL Connections*/
+	/* Adding listener to list of SSL Connections */
 	sslConnection[0] = ssl;
 	ShowCerts(sslConnection[0]);
 	printf("SHOWN CERTS");
@@ -152,7 +152,7 @@ int main()
 }
 
 
-/*This method is used to initialize the context for SSL connections.*/
+/* This method is used to initialize the context for SSL connections. */
 SSL_CTX * InitServerCTX(void) {
 
 	SSL_METHOD * method;
@@ -291,7 +291,7 @@ void clientRequest(ClientThread * clientThreadData) {
 	int			port;
 
 	for (;;) {
-		/* Checks to see if the current file descriptor needs to be processed*/
+		/* Checks to see if the current file descriptor needs to be processed */
 		printf("Reading Request\n");
 
 		/* Read in the request */
@@ -313,14 +313,14 @@ void clientRequest(ClientThread * clientThreadData) {
 
 		switch (typeOfMessage[0]) {
 
-			/*This case finds the server info for the user.*/
+			/* This case finds the server info for the user. */
 		case 'N':
 			;
 
 			int isfound = findServer(clientThreadData->serverList, topic);
 
 			if (isfound == 1) {
-				/*Joins the already created server.*/
+				/* Joins the already created server. */
 				sprintf(s, "Joining Server.\n");
 				printf("Connecting to server");
 
@@ -347,7 +347,7 @@ void clientRequest(ClientThread * clientThreadData) {
 
 			break;
 
-			/* This case is so the user can see all servers connnected to the directory*/
+			/* This case is so the user can see all servers connnected to the directory */
 		case 'L':
 			;
 			memset(s, 0, MAX);
@@ -367,13 +367,13 @@ void clientRequest(ClientThread * clientThreadData) {
 			/* This case is if a user needs to be removed from the directory (Tends to cause segfaults) */
 		case 'C':
 			;
-			strcpy(s, "Good Bye!");
+			strcpy(s, "Good Bye!\n");
 			SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
 			removeSSLConnection(clientThreadData->sslIndex, clientThreadData->sslConnection);
-
+			pthread_exit(0);
 			break;
 
-			/* This case s if a server is created and connects to the directory*/
+			/* This case s if a server is created and connects to the directory */
 		case 'S':
 			;
 
@@ -392,7 +392,7 @@ void clientRequest(ClientThread * clientThreadData) {
 					}
 
 					clientThreadData->serverList[index].port = port;
-					/*Send over a confirmation to the server that the connection to the directory has been made */
+					/* Send over a confirmation to the server that the connection to the directory has been made */
 					strcpy(s, "Created Server on Directory");
 					SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
 					printf("Server created at index: %d and on port %d\n\n\n", index, clientThreadData->serverList[index].port);
@@ -438,11 +438,11 @@ void clientRequest(ClientThread * clientThreadData) {
 	}
 }
 
-/* Returns if the server exists returns either NULL or the server info*/
+/* Returns if the server exists returns either NULL or the server info */
 int findServer(Server * serverList, char topic[53]) {
 	int					found = 0;
 	char				serverTopic[MAX];
-	int					port, sockd; /*These are you to hold on to the chat server's ip*/
+	int					port, sockd; /* These are you to hold on to the chat server's ip */
 	int					* serverInfo = (int *)malloc(sizeof(int) * 5);
 
 
@@ -467,7 +467,7 @@ void removeSSLConnection(int index, SSL ** sslConnection) {
 
 	printf("REMOVING SSL Connection");
 
-	/*Shutsdown the SSL Connection */
+	/* Shutsdown the SSL Connection */
 	SSL_shutdown(sslConnection[index]);
 	
 	/* Frees the context of the SSL Connection */

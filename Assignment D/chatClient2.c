@@ -20,14 +20,14 @@ Chat client
 #define MAX 10000
 
 
-int					endChatSession = 0;
+int					endConnection = 0;
 
 /* needToCloseConnection is used by the sigint handler to figure out which connection needs to be closed.*/
 int closeConnection = 0;
 
 /*The File descriptor of the chat server that the client connects to*/
 int                 chatfd;
-
+int					directoryfd;
 /* The context of the SSL Connection of the chat server the client is connected to.*/
 SSL_CTX *			chatCtx = NULL;
 
@@ -52,13 +52,15 @@ char * get_topic(void);
 void recieveChatMessage(User * user);
 void sendChatMessage(User  * user);
 void shutdownClient(int sig_num);
+void threadExit();
 void ShowCerts(SSL* ssl, char* nameOfServer);
+void endDirectoryConnection();
 SSL_CTX * InitCTX(void);
 
 int main()
 {
 
-	int listenerfd, directoryfd, chatfd, clilen,  nread, port; /* The first 3 file descriptors are used to connect to listen for new information, connect to the driectory server, and connect to the chat server respectively*/
+	int listenerfd, clilen,  nread, port; /* The first 3 file descriptors are used to connect to listen for new information, connect to the driectory server, and connect to the chat server respectively*/
 	struct sockaddr_in	cli_addr, dir_addr, serv_addr; /* All the socket addresses of the client, directory, and chat server */
 	char                s[MAX] = { '\0' }; /*String that is used to send information between the server and client*/
 	char				topic[MAX] = "l"; /*The topic of the chat server. It is initally set to l so the client will view all the servers connnected to the directory */
@@ -131,7 +133,7 @@ int main()
 
 
 	/* Start the interrupt so the connnections can be closed if the user needs to leave unexpectedly. */
-	signal(SIGINT, shutdownClient);
+	signal(SIGINT, endDirectoryConnection);
 	
 	/*This while loop keeps the user listing servers until he or she enters a server name.*/
 	while (strcmp(topic, "l") == 0) {
@@ -163,6 +165,7 @@ int main()
 
 		}
 		else {
+
 			/* The user has entered a server name now we check to see if it exists*/
 			memset(s, 0, MAX);
 			sprintf(s, "N,NONE,%s", topic);
@@ -287,7 +290,7 @@ int main()
 	}
 	/* End connection to the chat Server and clean up. (This shouldn't happen)*/
 		/* Closes the connection to the chat server */
-
+	printf("LEFT LOOP");
 	memset(s, 0, MAX);
 	strcpy(s, "Q,");
 	strcat(s, "NONE");
@@ -312,6 +315,8 @@ void sendChatMessage(User  * user) {
 	char			s[MAX] = { '\0' };
 	char *			message[MAX] = { '\0' };
 	
+	signal(SIGINT, threadExit);
+
 	for (;;) {
 		/* This thread will focus on gathering input from the user to send messages*/
 		strcpy(message, get_message());
@@ -335,6 +340,27 @@ void sendChatMessage(User  * user) {
 	}
 }
 
+void endDirectoryConnection() {
+	char s[MAX];
+	strcpy(s, "C,NONE,NONE");
+	SSL_write(ssldir, s, MAX);
+
+	SSL_read(ssldir, s, MAX);
+
+	printf("\n\n==================================\n");
+	printf(s);
+	printf("==================================\n");
+
+	/* The client closes connection to the directory */
+	close(directoryfd);
+	SSL_free(ssldir);
+	SSL_CTX_free(ctxdir);
+	exit(0);
+}
+
+void threadExit() {
+	pthread_exit(0);
+}
 /*Signal interrupt for SIGINT*/
 void shutdownClient(int sig_num) {
 	closeConnection = 1;
@@ -396,6 +422,7 @@ void recieveChatMessage(User * user) {
 	
 	memset(s, 0, MAX);
 	
+	signal(SIGINT, threadExit);
 
 		/* Read the server's response. */
 		for(;;) {
