@@ -22,129 +22,14 @@ Chat Server
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
 #include <pthread.h> /*For help on threads I used this example: https://www.geeksforgeeks.org/multithreading-c-2/*/
-#define MAX 10000
-
-/* This is the max number of SSL Connection that can be connected to this server*/
-#define CONNECTIONS 100
-
 
 /* SSL Information was based off of this: https://aticleworld.com/ssl-server-client-using-openssl-in-c/ */
 /* IBM also has info on SSL: https://developer.ibm.com/tutorials/l-openssl/ */
 
-
+#define MAX 10000
+/* This is the max number of SSL Connection that can be connected to this server*/
+#define CONNECTIONS 100
 int closeDirectoryConnection = 0;
-
-
-/* The header files helped to define fork process because I was having issues.*/
-int close(int);
-unsigned int sleep(unsigned int);
-pid_t fork(void);
-ssize_t write(int, const void*, size_t);
-ssize_t read(int, void*, size_t);
-void processClient(int);
-
-
-
-/*This method is used to initialize the context for SSL connections.*/
-SSL_CTX * InitServerCTX(void) {
-	SSL_METHOD * method;
-	SSL_CTX *ctx;
-
-	OpenSSL_add_all_algorithms();
-	SSL_load_error_strings();
-	method = SSLv23_server_method();
-	ctx = SSL_CTX_new(method);
-
-	if (ctx == NULL) {
-		perror("Cannot create context");
-		exit(1);
-	}
-
-	return ctx;
-}
-
-/*This method is used to initialize the context for SSL connections.*/
-SSL_CTX * InitCTX(void) {
-	SSL_METHOD * method;
-	SSL_CTX *ctx;
-
-
-	/*Change method to fit this example: https://wiki.openssl.org/index.php/Simple_TLS_Server */
-	OpenSSL_add_all_algorithms();
-	SSL_load_error_strings();
-	method = SSLv23_method();
-	ctx = SSL_CTX_new(method);
-
-	if (ctx == NULL) {
-		perror("Cannot create context");
-		exit(1);
-	}
-
-	return ctx;
-}
-
-/* This method is used to load the server's certificate (The CertFile and KeyFile are the same file)*/
-void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile) {
-
-	if (SSL_CTX_use_certificate_file(ctx, CertFile, SSL_FILETYPE_PEM) <= 0) {
-		perror("Cannot load certificate.");
-		exit(1);
-	}
-
-	if (SSL_CTX_use_PrivateKey_file(ctx, KeyFile, SSL_FILETYPE_PEM) <= 0) {
-		perror("Cannot gather private key from Key file");
-		exit(1);
-	}
-
-	if (!SSL_CTX_check_private_key(ctx)) {
-		perror("Private Key does not match public cert.");
-		exit(1);
-	}
-
-}
-
-/* This method sends the cert to the client for them to make sure they are connecting to the right server*/
-void ShowCerts(SSL * ssl) {
-	X509 * cert;
-	char *line;
-
-	cert = SSL_get_peer_certificate(ssl);
-	if (cert != NULL) {
-		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-		printf("Subject: %s\n", line);
-		free(line);
-		X509_free(cert);
-	}
-	else {
-		printf("No Cert!!!\n");
-	}
-}
-
-/* Check the directory server's certs */
-void CheckCerts(SSL* ssl, char* nameOfServer) {
-	X509 * cert;
-	char *line; //This is what will read through the cert
-
-	cert = SSL_get_peer_certificate(ssl);
-
-	if (cert != NULL) {
-		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-		printf("Topic: %s\n", nameOfServer);
-		printf("%s\n", line);
-		if (strstr(line, nameOfServer) == NULL) {
-			perror("Invalid Server!");
-		}
-		else {
-			printf("%s\n", line);
-		}
-
-		free(line);
-		X509_free(cert);
-	}
-	else {
-		printf("Info: No client certificates configured.\n");
-	}
-}
 
 
 /* A struct that defines each user name. All the user names are linked together to form a list of users */
@@ -170,8 +55,14 @@ typedef struct ClientThread {
 
 } ClientThread;
 
+
+
 /*Method definitions please see below Main for each method's purpose*/
-void addUserToList(User * userList, char username[53], int sockID, SSL * ssl);
+SSL_CTX * InitServerCTX(void);
+SSL_CTX * InitCTX(void);
+void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile);
+void ShowCerts(SSL * ssl);
+void CheckCerts(SSL* ssl, char* nameOfServer);
 int findUser(User * userList,char username[53]);
 void messageAllUsers(User * userList, char message[255]);
 void removeUser(User * userList, char username[53]);
@@ -380,6 +271,108 @@ void main(int argc, char **argv)
 	close(sockfd);
 	SSL_CTX_free(ssl);
 	return 0;
+}
+
+/* This method is used to load the server's certificate (The CertFile and KeyFile are the same file)*/
+void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile) {
+
+	if (SSL_CTX_use_certificate_file(ctx, CertFile, SSL_FILETYPE_PEM) <= 0) {
+		perror("Cannot load certificate.");
+		exit(1);
+	}
+
+	if (SSL_CTX_use_PrivateKey_file(ctx, KeyFile, SSL_FILETYPE_PEM) <= 0) {
+		perror("Cannot gather private key from Key file");
+		exit(1);
+	}
+
+	if (!SSL_CTX_check_private_key(ctx)) {
+		perror("Private Key does not match public cert.");
+		exit(1);
+	}
+
+}
+
+/* This method sends the cert to the client for them to make sure they are connecting to the right server*/
+void ShowCerts(SSL * ssl) {
+	X509 * cert;
+	char *line;
+
+	cert = SSL_get_peer_certificate(ssl);
+	if (cert != NULL) {
+		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+		printf("Subject: %s\n", line);
+		free(line);
+		X509_free(cert);
+	}
+	else {
+		printf("No Cert!!!\n");
+	}
+}
+
+/* Check the directory server's certs */
+void CheckCerts(SSL* ssl, char* nameOfServer) {
+	X509 * cert;
+	char *line; //This is what will read through the cert
+
+	cert = SSL_get_peer_certificate(ssl);
+
+	if (cert != NULL) {
+		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+		printf("Topic: %s\n", nameOfServer);
+		printf("%s\n", line);
+		if (strstr(line, nameOfServer) == NULL) {
+			perror("Invalid Server!");
+		}
+		else {
+			printf("%s\n", line);
+		}
+
+		free(line);
+		X509_free(cert);
+	}
+	else {
+		printf("Info: No client certificates configured.\n");
+	}
+}
+
+
+/*This method is used to initialize the context for SSL connections.*/
+SSL_CTX * InitServerCTX(void) {
+	SSL_METHOD * method;
+	SSL_CTX *ctx;
+
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+	method = SSLv23_server_method();
+	ctx = SSL_CTX_new(method);
+
+	if (ctx == NULL) {
+		perror("Cannot create context");
+		exit(1);
+	}
+
+	return ctx;
+}
+
+/*This method is used to initialize the context for SSL connections.*/
+SSL_CTX * InitCTX(void) {
+	SSL_METHOD * method;
+	SSL_CTX *ctx;
+
+
+	/*Change method to fit this example: https://wiki.openssl.org/index.php/Simple_TLS_Server */
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+	method = SSLv23_method();
+	ctx = SSL_CTX_new(method);
+
+	if (ctx == NULL) {
+		perror("Cannot create context");
+		exit(1);
+	}
+
+	return ctx;
 }
 
 void newConnection(Listener * listenerData) {

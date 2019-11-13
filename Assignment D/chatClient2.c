@@ -19,19 +19,6 @@ Chat client
 
 #define MAX 10000
 
-typedef struct User {
-	char			username[MAX];
-	SSL *			ssl;
-} User;
-
-/* Method headers please see below main function */
-char * get_message(void);
-char * get_username(char *);
-char * get_topic(void);
-int readn(int, char *, int);
-void recieveChatMessage(User * user);
-void sendChatMessage(User  * user);
-
 
 int					endChatSession = 0;
 
@@ -53,68 +40,25 @@ SSL_CTX *			ctxdir = NULL;
 /* The SSL connection that connects the client to the directory */
 SSL *				ssldir = NULL;
 
-/*Signal interrupt for SIGINT*/
-void shutdownClient(int sig_num) {
-	closeConnection = 1;
-}
+typedef struct User {
+	char			username[MAX];
+	SSL *			ssl;
+} User;
 
-/*This method is used to initialize the context for SSL connections.*/
-SSL_CTX * InitCTX(void) {
-	SSL_METHOD * method;
-	SSL_CTX *ctx;
-
-
-	/*Change method to fit this example: https://wiki.openssl.org/index.php/Simple_TLS_Server */
-	OpenSSL_add_all_algorithms();
-	SSL_load_error_strings();
-	method = SSLv23_method();
-	ctx = SSL_CTX_new(method);
-
-	if (ctx == NULL) {
-		perror("Cannot create context");
-		exit(1);
-	}
-
-	return ctx;
-}
-
-/* This method sends the cert to the client for them to make sure they are connecting to the right server*/
-void ShowCerts(SSL* ssl, char* nameOfServer) {
-	X509 * cert;
-	char *line; //This is what will read through the cert
-
-	cert = SSL_get_peer_certificate(ssl);
-
-	/* Loads the certificate of the chat server */
-	if (cert != NULL) {
-		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-		printf("Topic: %s\n", nameOfServer);
-		printf("%s\n",line);
-
-		/* Checks if the client is connecting to a legitimate chat server */
-		if (strstr(line, nameOfServer) == NULL) {
-			perror("Invalid Server!");
-		}
-		else {
-			printf("%s\n", line);
-		}
-
-		free(line);
-		X509_free(cert);
-	}
-	else {
-		printf("Info: No client certificates configured.\n");
-	}
-}
-
-
-
-
+/* Method headers please see below main function */
+char * get_message(void);
+char * get_username(char *);
+char * get_topic(void);
+void recieveChatMessage(User * user);
+void sendChatMessage(User  * user);
+void shutdownClient(int sig_num);
+void ShowCerts(SSL* ssl, char* nameOfServer);
+SSL_CTX * InitCTX(void);
 
 int main()
 {
 
-	int listenerfd, directoryfd, chatfd, clilen, selection, maxfds, nread, port, retval; /* The first 3 file descriptors are used to connect to listen for new information, connect to the driectory server, and connect to the chat server respectively*/
+	int listenerfd, directoryfd, chatfd, clilen,  nread, port; /* The first 3 file descriptors are used to connect to listen for new information, connect to the driectory server, and connect to the chat server respectively*/
 	struct sockaddr_in	cli_addr, dir_addr, serv_addr; /* All the socket addresses of the client, directory, and chat server */
 	char                s[MAX] = { '\0' }; /*String that is used to send information between the server and client*/
 	char				topic[MAX] = "l"; /*The topic of the chat server. It is initally set to l so the client will view all the servers connnected to the directory */
@@ -168,8 +112,6 @@ int main()
 		exit(1);
 	}
 	
-	/* If the user needs to close unexpectedly the connection to the directory server will be disconnnected. (Only works sometimes) */
-	//needToCloseConnection = 1;
 
 	/*Show the certificates from the directory to see if it is legit */
 	ShowCerts(ssldir, "directory");
@@ -179,10 +121,12 @@ int main()
 
 	/* Read in infromation from the directory server */
 	nread = SSL_read(ssldir, s, MAX);
+	
 	if (nread > 0) {
 		printf("%s", s);
 
 	}
+	
 	printf("\n--------------------------------------------\n");
 
 
@@ -191,7 +135,9 @@ int main()
 	
 	/*This while loop keeps the user listing servers until he or she enters a server name.*/
 	while (strcmp(topic, "l") == 0) {
+		
 		sprintf(topic, get_topic());
+		
 		if (strcmp(topic, "l") == 0) {
 			strcpy(s, "L,");
 			strcat(s, "NONE");
@@ -253,12 +199,6 @@ int main()
 	SSL_free(ssldir);
 	SSL_CTX_free(ctxdir);
 
-	/*The client is not connected to a connection so we set this variable to 0*/
-	//needToCloseConnection = 0;
-
-	//port = 5925; //These two line are used to help debug the chatServer
-	//strcpy(topic, "cats");
-
 	/* We create the chat server context*/
 	chatCtx = InitCTX();
 	int usernameSet = 0;
@@ -309,9 +249,6 @@ int main()
 		/*Show the certs of the server to make sure they are legit*/
 		ShowCerts(user->ssl, topic);
 
-		/*The client is now connected to the chatServer so we set this variable to 2 for the interrupt*/
-		//needToCloseConnection = 2;
-
 		/*See how much is written by the chat server*/
 		int numWrote = SSL_write(user->ssl, s, MAX);
 
@@ -321,15 +258,16 @@ int main()
 		/* Read the server's response. and find out if the username is taken */
 		nread = SSL_read(user->ssl, s, MAX);
 		if (nread > 0) {
+			
 			printf(s);
+			
 			if (strcmp(s, "Username already taken.\n") == 0) {
-				usernameSet = 0;
-				
+				usernameSet = 0;	
 			}
 			else {
 				usernameSet = 1;
-				
 			}
+
 		}
 	}
 
@@ -397,6 +335,61 @@ void sendChatMessage(User  * user) {
 	}
 }
 
+/*Signal interrupt for SIGINT*/
+void shutdownClient(int sig_num) {
+	closeConnection = 1;
+}
+
+/*This method is used to initialize the context for SSL connections.*/
+SSL_CTX * InitCTX(void) {
+	SSL_METHOD * method;
+	SSL_CTX *ctx;
+
+
+	/*Change method to fit this example: https://wiki.openssl.org/index.php/Simple_TLS_Server */
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+	method = SSLv23_method();
+	ctx = SSL_CTX_new(method);
+
+	if (ctx == NULL) {
+		perror("Cannot create context");
+		exit(1);
+	}
+
+	return ctx;
+}
+
+/* This method sends the cert to the client for them to make sure they are connecting to the right server*/
+void ShowCerts(SSL* ssl, char* nameOfServer) {
+	X509 * cert;
+	char *line; //This is what will read through the cert
+
+	cert = SSL_get_peer_certificate(ssl);
+
+	/* Loads the certificate of the chat server */
+	if (cert != NULL) {
+		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+		printf("Topic: %s\n", nameOfServer);
+		printf("%s\n", line);
+
+		/* Checks if the client is connecting to a legitimate chat server */
+		if (strstr(line, nameOfServer) == NULL) {
+			perror("Invalid Server!");
+		}
+		else {
+			printf("%s\n", line);
+		}
+
+		free(line);
+		X509_free(cert);
+	}
+	else {
+		printf("Info: No client certificates configured.\n");
+	}
+}
+
+
 void recieveChatMessage(User * user) {
 	int				nread = 0;
 	char			s[MAX];
@@ -405,14 +398,14 @@ void recieveChatMessage(User * user) {
 	
 
 		/* Read the server's response. */
-		for(;;){
-						nread = SSL_read(user->ssl, s, MAX);
-						if (nread > 0) {
-							printf("\n\n==================================\n");
-							printf(s);
-							printf("==================================\n");
-						}
+		for(;;) {
+			nread = SSL_read(user->ssl, s, MAX);
+			if (nread > 0) {
+				printf("\n\n==================================\n");
+				printf(s);
+				printf("==================================\n");
 			}
+		}
 }
 
 /* gets the username from the client */
