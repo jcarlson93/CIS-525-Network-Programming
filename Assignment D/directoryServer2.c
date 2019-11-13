@@ -24,13 +24,6 @@ Chat directory
 #define MAX 10000
 #define CONNECTIONS 100
 
-int close(int);
-unsigned int sleep(unsigned int);
-pid_t fork(void);
-ssize_t write(int, const void*, size_t);
-ssize_t read(int, void*, size_t);
-void processClient(int);
-
 /* A struct that defines each server. All the servers are linked together to form a list of servers */
 typedef struct Server {
 	char					topic[MAX];
@@ -55,63 +48,9 @@ typedef struct ClientThread {
 } ClientThread;
 
 
-/*This method is used to initialize the context for SSL connections.*/
-SSL_CTX * InitServerCTX(void) {
-
-	SSL_METHOD * method;
-	SSL_CTX *ctx;
-
-	OpenSSL_add_all_algorithms();
-	SSL_load_error_strings();
-	method = SSLv23_server_method();
-	ctx = SSL_CTX_new(method);
-
-	if (ctx == NULL) {
-		perror("Cannot create context");
-		exit(1);
-	}
-	printf("Created a context.\n");
-	return ctx;
-}
-
-
-
-/* This method is used to load the server's certificate (The CertFile and KeyFile are the same file)*/
-void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile) {
-
-	if (SSL_CTX_use_certificate_file(ctx, CertFile, SSL_FILETYPE_PEM) <= 0) {
-		perror("Cannot load certificate.");
-		exit(1);
-	}
-
-	if (SSL_CTX_use_PrivateKey_file(ctx, KeyFile, SSL_FILETYPE_PEM) <= 0) {
-		perror("Cannot gather private key from Key file");
-		exit(1);
-	}
-
-	if (!SSL_CTX_check_private_key(ctx)) {
-		perror("Private Key does not match public cert.");
-		exit(1);
-	}
-	printf("Loaded Certs.\n");
-}
-/* This method sends the cert to the client for them to make sure they are connecting to the right server*/
-void ShowCerts(SSL * ssl) {
-	X509 * cert;
-	char *line;
-
-	cert = SSL_get_peer_certificate(ssl);
-	if (cert != NULL) {
-		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-		printf("Subject: %s\n", line);
-		free(line);
-		X509_free(cert);
-	}
-	else {
-		printf("No Cert!!!\n");
-	}
-}
-
+SSL_CTX * InitServerCTX(void);
+void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile);
+void ShowCerts(SSL * ssl);
 /* Method declaration for the method to add servers to the directory's server list */
 void addServerToList(Server * serverList, char topic[53], int sockfd, int maxfds);
 
@@ -124,6 +63,9 @@ void removeSSLConnection(int fd, SSL ** sslList);
 void newConnection(Listener * listenerData);
 
 void clientRequest(ClientThread * clientThreadData);
+
+
+
 
 
 int main()
@@ -209,6 +151,27 @@ int main()
 
 }
 
+
+/*This method is used to initialize the context for SSL connections.*/
+SSL_CTX * InitServerCTX(void) {
+
+	SSL_METHOD * method;
+	SSL_CTX *ctx;
+
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+	method = SSLv23_server_method();
+	ctx = SSL_CTX_new(method);
+
+	if (ctx == NULL) {
+		perror("Cannot create context");
+		exit(1);
+	}
+	printf("Created a context.\n");
+	return ctx;
+}
+
+
 void newConnection(Listener * listenerData) {
 	unsigned int		clilen;
 	int					newsockfd;
@@ -281,6 +244,46 @@ void newConnection(Listener * listenerData) {
 	}
 }
 
+
+
+/* This method is used to load the server's certificate (The CertFile and KeyFile are the same file)*/
+void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile) {
+
+	if (SSL_CTX_use_certificate_file(ctx, CertFile, SSL_FILETYPE_PEM) <= 0) {
+		perror("Cannot load certificate.");
+		exit(1);
+	}
+
+	if (SSL_CTX_use_PrivateKey_file(ctx, KeyFile, SSL_FILETYPE_PEM) <= 0) {
+		perror("Cannot gather private key from Key file");
+		exit(1);
+	}
+
+	if (!SSL_CTX_check_private_key(ctx)) {
+		perror("Private Key does not match public cert.");
+		exit(1);
+	}
+	printf("Loaded Certs.\n");
+}
+
+/* This method sends the cert to the client for them to make sure they are connecting to the right server*/
+void ShowCerts(SSL * ssl) {
+	X509 * cert;
+	char *line;
+
+	cert = SSL_get_peer_certificate(ssl);
+	if (cert != NULL) {
+		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+		printf("Subject: %s\n", line);
+		free(line);
+		X509_free(cert);
+	}
+	else {
+		printf("No Cert!!!\n");
+	}
+}
+
+
 void clientRequest(ClientThread * clientThreadData) {
 	char		request[MAX];
 	char		s[MAX];
@@ -333,7 +336,7 @@ void clientRequest(ClientThread * clientThreadData) {
 				/* Send server information to client */
 				SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
 				removeSSLConnection(clientThreadData->sslIndex, clientThreadData->sslConnection);
-
+				pthread_exit(0);
 			}
 			else {
 
@@ -355,7 +358,6 @@ void clientRequest(ClientThread * clientThreadData) {
 					strcat(s, clientThreadData->serverList[i].topic);
 					strcat(s, "\n");
 				}
-				printf("GOING THROUGH INDEX: %d", &index);
 			}
 
 			SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
@@ -376,7 +378,7 @@ void clientRequest(ClientThread * clientThreadData) {
 			;
 
 			char * nameofServer = username;
-
+			printf("%s\n\n", username);
 			port = 0;
 			memset(s, 0, MAX);
 
@@ -390,7 +392,6 @@ void clientRequest(ClientThread * clientThreadData) {
 					}
 
 					clientThreadData->serverList[index].port = port;
-
 					/*Send over a confirmation to the server that the connection to the directory has been made */
 					strcpy(s, "Created Server on Directory");
 					SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
@@ -424,7 +425,7 @@ void clientRequest(ClientThread * clientThreadData) {
 
 				index++;
 			}
-
+			pthread_exit(0);
 			break;
 
 			/* This case is if someone enters a type of message that cannot be processed (This will not occur by the client or server) */

@@ -555,6 +555,7 @@ void clientRequest(ClientThread * clientThreadData) {
 					SSL_CTX_free(SSL_get_SSL_CTX(clientThreadData->userList[index].ssl));
 					strcpy(clientThreadData->userList[index].username, "");
 					clientThreadData->userList[index].socketId = -1;
+
 				}
 			}
 
@@ -573,7 +574,7 @@ void clientRequest(ClientThread * clientThreadData) {
 			}
 
 
-
+			pthread_exit(0);
 			break;
 		default: strcpy(s, "Invalid request\n");
 			SSL_write(clientThreadData->userList[clientThreadData->sslIndex].ssl, s, MAX);
