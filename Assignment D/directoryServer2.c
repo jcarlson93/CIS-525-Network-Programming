@@ -406,24 +406,19 @@ void clientRequest(ClientThread * clientThreadData) {
 			/* This case is if a server needs to disconnect and needs to be removed from Server List */
 		case 'Q':
 			;
-
 			/* This function removes the current socket being processed from the list of SSL Connections */
 			removeSSLConnection(clientThreadData->sslIndex, clientThreadData->sslConnection);
 
 			/* The below look removes the server from the server list */
-			int index = 0;
-			while (index < 100) {
+			for (int index = 0; index < CONNECTIONS; index++) {
 
 				if (strncmp(topic, clientThreadData->serverList[index].topic, strlen(clientThreadData->serverList[index].topic)) == 0) {
 					clientThreadData->serverList[index].port = -1;
 					clientThreadData->serverList[index].sockfd = -1;
 					clientThreadData->serverList[index].ssl = NULL;
-					strcpy(clientThreadData->serverList[clientThreadData->sslIndex].topic, "");
-					bzero(clientThreadData->serverList[index].topic, strlen(clientThreadData->serverList[index].topic));
+					strcpy(clientThreadData->serverList[index].topic, "");
 					break;
 				}
-
-				index++;
 			}
 			pthread_exit(0);
 			break;

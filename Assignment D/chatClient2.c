@@ -290,7 +290,6 @@ int main()
 	}
 	/* End connection to the chat Server and clean up. (This shouldn't happen)*/
 		/* Closes the connection to the chat server */
-	printf("LEFT LOOP");
 	memset(s, 0, MAX);
 	strcpy(s, "Q,");
 	strcat(s, "NONE");

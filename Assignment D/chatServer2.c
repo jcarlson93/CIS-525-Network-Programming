@@ -21,6 +21,7 @@ Chat Server
 #include <openssl/ssl.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <signal.h>
 #include <pthread.h> /*For help on threads I used this example: https://www.geeksforgeeks.org/multithreading-c-2/*/
 
 /* SSL Information was based off of this: https://aticleworld.com/ssl-server-client-using-openssl-in-c/ */
@@ -30,7 +31,10 @@ Chat Server
 /* This is the max number of SSL Connection that can be connected to this server*/
 #define CONNECTIONS 100
 int closeDirectoryConnection = 0;
+SSL_CTX *			ctxdir; /* Creates a context for SSL Connection to directory*/
 
+SSL *				ssldir; /* Creates an ssl connection to directory */
+char *				topic;
 
 /* A struct that defines each user name. All the user names are linked together to form a list of users */
 typedef struct User {
@@ -68,6 +72,7 @@ void messageAllUsers(User * userList, char message[255]);
 void removeUser(User * userList, char username[53]);
 void newConnection(Listener * listenerData);
 void clientRequest(ClientThread * clientThreadData);
+void endDirectoryConnection();
 
 /* For using select I decided to use this link https://www.geeksforgeeks.org/socket-programming-in-cc-handling-multiple-clients-on-server-without-multi-threading/ */
 
@@ -86,10 +91,7 @@ void main(int argc, char **argv)
 	User *				userList; /* List of all users connected to the server*/
 	fd_set				readfds; /* List of all file descriptors */
 	SSL_CTX *			ctx; /* Used for establishing context for listener connection*/
-	SSL_CTX *			ctxdir; /* Creates a context for SSL Connection to directory*/
-	
-	SSL *				ssldir; /* Creates an ssl connection to directory */
-	
+
 	Listener *			listenerData;
 	pthread_t			listenerThread;
 
@@ -106,7 +108,7 @@ void main(int argc, char **argv)
 
 	/* Setting up */
 	char * portAsString = argv[1];
-	char * topic = argv[2];
+	topic = argv[2];
 	char * dirPortAsString;
 	int dirPort = 0;
 
@@ -186,6 +188,10 @@ void main(int argc, char **argv)
 
 	}
 	printf("\n--------------------------------------------\n");
+
+
+	/* Start the interrupt so the connnections can be closed if the user needs to leave unexpectedly. */
+	signal(SIGINT, endDirectoryConnection);
 
 	/* This finds the correct cert for the chatroom*/
 	char certName[MAX];
@@ -271,6 +277,22 @@ void main(int argc, char **argv)
 	close(sockfd);
 	SSL_CTX_free(ssl);
 	return 0;
+}
+
+void endDirectoryConnection() {
+	char s[MAX];
+
+	strcpy(s, "Q,");
+	strcat(s, topic);
+	strcat(s, ",");
+	strcat(s, topic);
+	SSL_write(ssldir, s, MAX);
+
+	/* The client closes connection to the directory */
+	close(SSL_get_fd(ssldir));
+	SSL_free(ssldir);
+	SSL_CTX_free(ctxdir);
+	exit(0);
 }
 
 /* This method is used to load the server's certificate (The CertFile and KeyFile are the same file)*/
@@ -531,7 +553,7 @@ void clientRequest(ClientThread * clientThreadData) {
 			messageAllUsers(clientThreadData->userList, s);
 			break;
 			/*When the user ends the client we remove the user from the list and end their socket.*/
-		case 'Q':
+		case 'C':
 			;
 			printf("SOMEONE WANTS TO QUIT\n\n");
 			int found = 0;
@@ -551,7 +573,8 @@ void clientRequest(ClientThread * clientThreadData) {
 
 				}
 			}
-
+			
+			SSL_free(clientThreadData->sslConnection[clientThreadData->sslIndex]);
 			/* Check to see if we have no users*/
 			int emptyServer = 1;
 			for (int index = 0; index < CONNECTIONS; index++) {
