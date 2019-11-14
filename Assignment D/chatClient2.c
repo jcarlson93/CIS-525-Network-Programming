@@ -242,7 +242,6 @@ int main()
 
 	/* Start the interrupt so the connnections can be closed if the user needs to leave unexpectedly. */
 	signal(SIGINT, endServerConnection);
-	printf("SET");
 	/* Gather Username from user */
 	while (usernameSet == 0) {
 
@@ -362,29 +361,21 @@ void endDirectoryConnection() {
 
 void endServerConnection() {
 	char s[MAX];
-
-	printf("SENDING OFF CODE");
+	char serverOutput [MAX];
 
 	strcpy(s, "C,NONE,Good Bye!");
 
 	SSL_write(user->ssl, s, MAX);
 
-	SSL_read(user->ssl, s, MAX);
+	SSL_read(user->ssl, serverOutput, MAX);
 
 	printf("\n\n==================================\n");
-	printf(s);
+	printf("Good Bye!\n");
 	printf("==================================\n");
 
 	/* The client closes connection to the directory */
 	close(SSL_get_fd(user->ssl));
-	SSL_CTX_free(chatCtx);
-	SSL_free(user->ssl);
 	exit(0);
-	
-	
-
-
-\
 }
 
 void threadExit() {

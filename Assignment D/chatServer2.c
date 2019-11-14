@@ -30,6 +30,8 @@ Chat Server
 #define MAX 10000
 /* This is the max number of SSL Connection that can be connected to this server*/
 #define CONNECTIONS 100
+
+int hadUsers = 0;
 int closeDirectoryConnection = 0;
 SSL_CTX *			ctxdir; /* Creates a context for SSL Connection to directory*/
 
@@ -151,7 +153,7 @@ void main(int argc, char **argv)
 		exit(1);
 	}
 
-	printf("Connecting to Directory");
+	printf("Connecting to Directory\n");
 	/* Creating SSL Connection to Directory*/
 	SSL_library_init();
 
@@ -236,7 +238,7 @@ void main(int argc, char **argv)
 		exit(1);
 	}
 
-	printf("Creating SSL Connection");
+	printf("Creating SSL Connection\n");
 	ctx = InitServerCTX();
 	LoadCerts(ctx, certName, certName);
 	ssl = SSL_new(ctx);
@@ -260,22 +262,12 @@ void main(int argc, char **argv)
 		exit(1);
 	}
 
-	printf("Before for loop");
-	while (closeDirectoryConnection == 0) {
+	printf("Before for loop\n");
+
+	while (1) {
 
 	}
 
-	/* Set up the address of the server to be contacted. */
-
-	strcpy(buff, "Q,");
-	strcat(buff, topic);
-	strcat(buff, ",");
-	strcat(buff, topic);
-	SSL_write(ssldir, buff, MAX);
-	close(directoryfd);
-	SSL_CTX_free(ctxdir);
-	close(sockfd);
-	SSL_CTX_free(ssl);
 	return 0;
 }
 
@@ -411,7 +403,7 @@ void newConnection(Listener * listenerData) {
 	{
 		clientThreadData = (ClientThread *)malloc(sizeof(ClientThread));
 		/* Accept a new connection request. */
-		printf("ACCEPTING");
+		printf("ACCEPTING NEW CONNECTION\n");
 		clilen = sizeof(listenerData->client_addr);
 		newsockfd = accept(listenerData->listenfd, (struct sockaddr *) &(listenerData->client_addr), &clilen);
 
@@ -429,7 +421,7 @@ void newConnection(Listener * listenerData) {
 		}
 		
 		ShowCerts(newssl);
-		printf("AFTER CERT");
+		printf("AFTER CERT\n");
 
 		/* Find an open SSL Connection in the list to add the new connection */
 		for (int index = 0; index < CONNECTIONS; index++) {
@@ -459,7 +451,6 @@ void clientRequest(ClientThread * clientThreadData) {
 	char		s[MAX];
 	char		buff[MAX];
 
-	printf("\nENTERED CLIENT THREAD\n");
 	for (;;) {
 		SSL_read(clientThreadData->sslConnection[clientThreadData->sslIndex], request, MAX);
 
@@ -502,10 +493,11 @@ void clientRequest(ClientThread * clientThreadData) {
 				printf("FIRST USER\n");
 				printf("%s", s);
 
+				hadUsers = 1;
+
 				if (SSL_write(clientThreadData->userList[0].ssl, s, MAX) <= 0) {
 					ERR_print_errors_fp(stdout);
 				}
-				printf("Written.\n");
 
 			}
 			else {
@@ -550,7 +542,7 @@ void clientRequest(ClientThread * clientThreadData) {
 
 			strcat(s, ": ");
 			strcat(s, message);
-			printf("GOT A MESSAGE");
+			printf("GOT A MESSAGE\n");
 			printf("%s", s);
 			messageAllUsers(clientThreadData->userList, s);
 			break;
@@ -560,6 +552,9 @@ void clientRequest(ClientThread * clientThreadData) {
 			printf("SOMEONE WANTS TO QUIT\n\n");
 			int found = 0;
 			int removefd = SSL_get_fd(clientThreadData->sslConnection[clientThreadData->sslIndex]);
+			
+			strcpy(s, message);
+			SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
 
 			/* Go through the userlist and remove the user*/
 			for (int index = 0; index < CONNECTIONS; index++) {
@@ -568,54 +563,46 @@ void clientRequest(ClientThread * clientThreadData) {
 					printf("REMOVING USER\n");
 					strcat(s, ": ");
 					strcat(s, message);
-					printf("%s", s);
+					printf("%s\n", s);
 					messageAllUsers(clientThreadData->userList, s);
 					strcpy(clientThreadData->userList[index].username, "");
 					clientThreadData->userList[index].socketId = -1;
-
-					/* Shutsdown the SSL Connection */
-					SSL_shutdown(clientThreadData->sslConnection[index]);
-
-					/* Frees the context of the SSL Connection */
-					SSL_CTX_free(SSL_get_SSL_CTX(clientThreadData->sslConnection[index]));
-
-					/* Frees the actual SSL Connection*/
-					free(clientThreadData->sslConnection[index]);
 					found = 1;
+					break;
 				}
 				
 
 			}
 
-			if (!found) {
-					strcpy(s, "Good Bye!\n");
-					SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
 
-					/* Shutsdown the SSL Connection */
-					SSL_shutdown(clientThreadData->sslConnection[clientThreadData->sslIndex]);
+				/* Shutsdown the SSL Connection */
+				SSL_shutdown(clientThreadData->sslConnection[clientThreadData->sslIndex]);
 
-					/* Frees the context of the SSL Connection */
-					SSL_CTX_free(SSL_get_SSL_CTX(clientThreadData->sslConnection[clientThreadData->sslIndex]));
+				/* Frees the context of the SSL Connection */
+				SSL_CTX_free(SSL_get_SSL_CTX(clientThreadData->sslConnection[clientThreadData->sslIndex]));
 
-					SSL_free(clientThreadData->sslConnection[clientThreadData->sslIndex]);
-			}
+				SSL_free(clientThreadData->sslConnection[clientThreadData->sslIndex]);
 
 
-			printf("ENDED SSL CONNECTION");
-			/* Check to see if we have no users*/
-			int emptyServer = 1;
-			for (int index = 0; index < CONNECTIONS; index++) {
-				if (clientThreadData->userList[index].socketId > 0) {
-					emptyServer = 0;
-					break;
+				if (hadUsers == 1) {
+					/* Check to see if we have no users*/
+					int emptyServer = 1;
+					for (int index = 0; index < CONNECTIONS; index++) {
+						if (clientThreadData->userList[index].socketId > 0) {
+							emptyServer = 0;
+							break;
+						}
+					}
+
+					/*Close down the Server and remove it from directory*/
+					if (emptyServer == 1) {
+						closeDirectoryConnection = 1;
+
+						endDirectoryConnection();
+						exit(0);
+
+					}
 				}
-			}
-
-			/*Close down the Server and remove it from directory*/
-			if (emptyServer == 0) {
-				closeDirectoryConnection = 1;
-			}
-
 
 			pthread_exit(0);
 			break;
