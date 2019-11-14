@@ -458,12 +458,14 @@ void clientRequest(ClientThread * clientThreadData) {
 	char		request[MAX];
 	char		s[MAX];
 	char		buff[MAX];
+
 	printf("\nENTERED CLIENT THREAD\n");
 	for (;;) {
 		SSL_read(clientThreadData->sslConnection[clientThreadData->sslIndex], request, MAX);
 
 		printf("Reading Request\n");
 		printf("%s\n\n", request);
+
 		/* Forgot how to use string tokenizer followed this link: https://www.geeksforgeeks.org/strtok-strtok_r-functions-c-examples/ */
 		char * typeOfMessage = strtok(request, ",");
 
@@ -557,24 +559,49 @@ void clientRequest(ClientThread * clientThreadData) {
 			;
 			printf("SOMEONE WANTS TO QUIT\n\n");
 			int found = 0;
+			int removefd = SSL_get_fd(clientThreadData->sslConnection[clientThreadData->sslIndex]);
+
 			/* Go through the userlist and remove the user*/
 			for (int index = 0; index < CONNECTIONS; index++) {
-				if (clientThreadData->userList[index].socketId == clientThreadData->sslIndex) {
+				if (clientThreadData->userList[index].socketId == removefd) {
 					strcpy(s, clientThreadData->userList[index].username);
 					printf("REMOVING USER\n");
 					strcat(s, ": ");
 					strcat(s, message);
 					printf("%s", s);
 					messageAllUsers(clientThreadData->userList, s);
-					close(currentfd);
-					SSL_CTX_free(SSL_get_SSL_CTX(clientThreadData->userList[index].ssl));
 					strcpy(clientThreadData->userList[index].username, "");
 					clientThreadData->userList[index].socketId = -1;
 
+					/* Shutsdown the SSL Connection */
+					SSL_shutdown(clientThreadData->sslConnection[index]);
+
+					/* Frees the context of the SSL Connection */
+					SSL_CTX_free(SSL_get_SSL_CTX(clientThreadData->sslConnection[index]));
+
+					/* Frees the actual SSL Connection*/
+					free(clientThreadData->sslConnection[index]);
+					found = 1;
 				}
+				
+
 			}
-			
-			SSL_free(clientThreadData->sslConnection[clientThreadData->sslIndex]);
+
+			if (!found) {
+					strcpy(s, "Good Bye!\n");
+					SSL_write(clientThreadData->sslConnection[clientThreadData->sslIndex], s, MAX);
+
+					/* Shutsdown the SSL Connection */
+					SSL_shutdown(clientThreadData->sslConnection[clientThreadData->sslIndex]);
+
+					/* Frees the context of the SSL Connection */
+					SSL_CTX_free(SSL_get_SSL_CTX(clientThreadData->sslConnection[clientThreadData->sslIndex]));
+
+					SSL_free(clientThreadData->sslConnection[clientThreadData->sslIndex]);
+			}
+
+
+			printf("ENDED SSL CONNECTION");
 			/* Check to see if we have no users*/
 			int emptyServer = 1;
 			for (int index = 0; index < CONNECTIONS; index++) {
