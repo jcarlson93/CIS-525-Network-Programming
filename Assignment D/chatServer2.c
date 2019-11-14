@@ -1,4 +1,4 @@
-/* Assignment C by Nickalas Porsch based off of previous assignment b.
+/* Assignment D by Nickalas Porsch based off of previous assignment C.
 Chat Server
 	To run type make and then ./directory&; Then start an indvidual server  by doing ./server PORT TOPIC and then create a client with ./client
 	Where you provide the PORT and TOPIC
@@ -27,16 +27,11 @@ Chat Server
 /* SSL Information was based off of this: https://aticleworld.com/ssl-server-client-using-openssl-in-c/ */
 /* IBM also has info on SSL: https://developer.ibm.com/tutorials/l-openssl/ */
 
-#define MAX 10000
-/* This is the max number of SSL Connection that can be connected to this server*/
-#define CONNECTIONS 100
+#define MAX 10000 /* The max size of character arrays*/
 
-int hadUsers = 0;
-int closeDirectoryConnection = 0;
-SSL_CTX *			ctxdir; /* Creates a context for SSL Connection to directory*/
+#define CONNECTIONS 100 /* This is the max number of SSL Connection that can be connected to this server*/
 
-SSL *				ssldir; /* Creates an ssl connection to directory */
-char *				topic;
+
 
 /* A struct that defines each user name. All the user names are linked together to form a list of users */
 typedef struct User {
@@ -45,23 +40,30 @@ typedef struct User {
 	SSL *					ssl;
 } User;
 
+/* This struct is used by the listener thread to pass all the necessary data it needs to use and its children need*/
 typedef struct Listener {
-	User * userList;
-	SSL ** sslConnection;
-	int listenfd;
-	char * certName;
-	struct sockaddr_in client_addr;
+	User * userList; /* List of all users on the server */
+	SSL ** sslConnection; /* List of all SSL Connections on the server */
+	int listenfd; /* The listener socket */
+	char * certName; /* The certificate for creating SSL Connections */
+	struct sockaddr_in client_addr; /* Needed for creating new connections */
 
 } Listener;
 
+/* This struct is used by client thread to pass all the necessary data it needs to use*/
 typedef struct ClientThread {
-	User *	userList;
-	SSL **	sslConnection;
-	int		sslIndex;
+	User *	userList; /* List of all users on the server */
+	SSL **	sslConnection; /* List of all SSL Connections on the server*/
+	int		sslIndex; /* The index of the specific client in the SSL Connection list */
 
 } ClientThread;
 
 
+int hadUsers = 0; /* Allows connections that have not been added to the userlist to be terminated without closing the server*/
+int closeDirectoryConnection = 0; /* Checks if the directory server connection needs to be closed early */
+SSL_CTX *			ctxdir; /* Creates a context for SSL Connection to directory*/
+SSL *				ssldir; /* Creates an ssl connection to directory */
+char *				topic; /* The topic for the server */
 
 /*Method definitions please see below Main for each method's purpose*/
 SSL_CTX * InitServerCTX(void);
@@ -69,31 +71,29 @@ SSL_CTX * InitCTX(void);
 void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile);
 void ShowCerts(SSL * ssl);
 void CheckCerts(SSL* ssl, char* nameOfServer);
-int findUser(User * userList,char username[53]);
 void messageAllUsers(User * userList, char message[255]);
 void removeUser(User * userList, char username[53]);
 void newConnection(Listener * listenerData);
 void clientRequest(ClientThread * clientThreadData);
 void endDirectoryConnection();
+int findUser(User * userList, char username[53]);
 
-/* For using select I decided to use this link https://www.geeksforgeeks.org/socket-programming-in-cc-handling-multiple-clients-on-server-without-multi-threading/ */
-
+/* Main thread*/
 void main(int argc, char **argv)
 {
-	int                 sockfd, newsockfd, directoryfd, childpid, nread, maxsocketdesc, selection, maxfds ;
+	int                 listenerfd, directoryfd, nread; /*The first to are the listener socket and the directory socket. The last one is to check if any input has been read*/
 	SSL*				ssl; /* Used for listener socket*/
 
 	SSL **				sslConnection; /*List of all SSL Connections*/
 	struct sockaddr_in	dir_addr; /* Used for connection to the directory */
 	unsigned int	clilen;
 	struct sockaddr_in  cli_addr, serv_addr; /* Used for handling client connections */
-	char                s[MAX];
-	char				buff[MAX];
-	char				request[MAX]; /* Incoming message from a connection */
+	char                s[MAX]; /* Used for sending messages in and out of the server*/
+	int					port = 0;
 	User *				userList; /* List of all users connected to the server*/
 	fd_set				readfds; /* List of all file descriptors */
 	SSL_CTX *			ctx; /* Used for establishing context for listener connection*/
-
+	char *				portAsString;
 	Listener *			listenerData;
 	pthread_t			listenerThread;
 
@@ -109,21 +109,8 @@ void main(int argc, char **argv)
 
 
 	/* Setting up */
-	char * portAsString = argv[1];
+	portAsString = argv[1];
 	topic = argv[2];
-	char * dirPortAsString;
-	int dirPort = 0;
-
-	if (argc == 4) {
-		dirPortAsString = argv[3];
-		/* How to convert an string to int*/
-		for (int i = 0; i < strlen(dirPortAsString); i++) {
-			dirPort = dirPort * 10 + (dirPortAsString[i] - '0');
-		}
-	}
-
-
-	int port = 0;
 
 
 	/* How to convert an string to int*/
@@ -154,6 +141,7 @@ void main(int argc, char **argv)
 	}
 
 	printf("Connecting to Directory\n");
+
 	/* Creating SSL Connection to Directory*/
 	SSL_library_init();
 
@@ -216,7 +204,7 @@ void main(int argc, char **argv)
 
 	printf("Creating listening socket\n");
 	/* Create communication endpoint (master socket)*/
-	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+	if ((listenerfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("server: can't open stream socket");
 		exit(1);
 	}
@@ -228,12 +216,12 @@ void main(int argc, char **argv)
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
 
-	if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+	if (bind(listenerfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
 		perror("server: can't bind local address");
 		exit(1);
 	}
 
-	if (listen(sockfd, 5) < 0) {
+	if (listen(listenerfd, 5) < 0) {
 		perror("Too many connections to listen too");
 		exit(1);
 	}
@@ -244,13 +232,13 @@ void main(int argc, char **argv)
 	ssl = SSL_new(ctx);
 
 	/* Adding listener to list of SSL Connections*/
-	SSL_set_fd(ssl, sockfd);
+	SSL_set_fd(ssl, listenerfd);
 	sslConnection[0] = ssl;
 	ShowCerts(sslConnection[0]);
 
-
+	/* Prepares to send information to listener thread */
 	listenerData->certName = certName;
-	listenerData->listenfd = sockfd;
+	listenerData->listenfd = listenerfd;
 	listenerData->sslConnection = sslConnection;
 	listenerData->userList = userList;
 	listenerData->client_addr = cli_addr;
@@ -271,8 +259,9 @@ void main(int argc, char **argv)
 	return 0;
 }
 
+/*This method is used to close the connection to the directory server */
 void endDirectoryConnection() {
-	char s[MAX];
+	char s[MAX]; /* Used for passing infromation to and from the server*/
 
 	strcpy(s, "Q,");
 	strcat(s, topic);
@@ -389,13 +378,14 @@ SSL_CTX * InitCTX(void) {
 	return ctx;
 }
 
+/* Used by the listener Thread to accept new incoming connections*/
 void newConnection(Listener * listenerData) {
-	unsigned int		clilen;
-	int					newsockfd;
+	unsigned int		clilen; /* Length of client address */
+	int					newsockfd; /* The new connection socket*/
 	SSL_CTX *			newctx; /* Used for incoming SSL Connections */
 	SSL *				newssl; /* Used for incoming SSL Connections */
-	pthread_t			connectionThread;
-	ClientThread *		clientThreadData;
+	pthread_t			connectionThread; /* The thread the new client will be on */
+	ClientThread *		clientThreadData; /* The struct to pass information to the new client*/
 
 	
 
@@ -446,10 +436,11 @@ void newConnection(Listener * listenerData) {
 	}
 }
 
+/* Used by client threads to processes request */
 void clientRequest(ClientThread * clientThreadData) {
-	char		request[MAX];
-	char		s[MAX];
-	char		buff[MAX];
+	char		request[MAX];  /* The client request */
+	char		s[MAX]; /* Any information needed to pass to and from the server */
+	char		buff[MAX]; /* Used for sending messages out to all users*/
 
 	for (;;) {
 		SSL_read(clientThreadData->sslConnection[clientThreadData->sslIndex], request, MAX);
@@ -583,7 +574,7 @@ void clientRequest(ClientThread * clientThreadData) {
 
 				SSL_free(clientThreadData->sslConnection[clientThreadData->sslIndex]);
 
-
+				/*If the server has had users before */
 				if (hadUsers == 1) {
 					/* Check to see if we have no users*/
 					int emptyServer = 1;

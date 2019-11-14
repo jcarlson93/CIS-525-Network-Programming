@@ -1,4 +1,4 @@
-/* Assignment C by Nickalas Porsch based off of previous assignment c.
+/* Assignment D by Nickalas Porsch based off of previous assignment c.
 Chat directory
 		To run type make and then ./directory&; Then start an indvidual server  by doing ./server PORT TOPIC and then create a client with ./client
 	Where you provide the PORT and TOPIC
@@ -31,7 +31,7 @@ typedef struct Server {
 	SSL *					ssl;
 } Server;
 
-
+/* A struct for passing information to the listener thread*/
 typedef struct Listener {
 	Server * serverList;
 	SSL ** sslConnection;
@@ -40,6 +40,7 @@ typedef struct Listener {
 
 } Listener;
 
+/* A struct for passing information to the client thread*/
 typedef struct ClientThread {
 	Server *	serverList;
 	SSL **	sslConnection;
@@ -48,38 +49,28 @@ typedef struct ClientThread {
 } ClientThread;
 
 
+/* Method declarations please see below main for more info*/
 SSL_CTX * InitServerCTX(void);
 void LoadCerts(SSL_CTX *ctx, char * CertFile, char *KeyFile);
 void ShowCerts(SSL * ssl);
-/* Method declaration for the method to add servers to the directory's server list */
-void addServerToList(Server * serverList, char topic[53], int sockfd, int maxfds);
-
-/* Method declaration for the method to help the directory find servers*/
+void removeSSLConnection(int fd, SSL ** sslList);
+void newConnection(Listener * listenerData);
+void clientRequest(ClientThread * clientThreadData);
 int findServer(Server * serverList, char topic[53]);
 
-/* Method declaration for removing an SSL Connection*/
-void removeSSLConnection(int fd, SSL ** sslList);
-
-void newConnection(Listener * listenerData);
-
-void clientRequest(ClientThread * clientThreadData);
 
 
-
-
-
+/* Main function*/
 int main()
 {
-	int                 listenerfd, newsockfd, clilen, childpid, selection, maxfds, port, read_blocked, accept_blocked;
-	struct sockaddr_in  cli_addr, serv_addr, chat_addr;
+	int                 listenerfd; /*Listener socket*/
+	struct sockaddr_in  cli_addr, serv_addr;
 	char                s[MAX] = { '\0' };
 	char				request[MAX] = { '\0' };
 	Server *			serverList;
 	SSL **				sslConnection;
 	SSL_CTX *			ctx;
-	SSL_CTX *			newctx;
 	SSL *				ssl;
-	SSL *				newssl;
 	Listener *			listenerData;
 	pthread_t			listenerThread;
 
@@ -132,6 +123,8 @@ int main()
 	sslConnection[0] = ssl;
 	ShowCerts(sslConnection[0]);
 	printf("SHOWN CERTS");
+
+	/* Preparing information to be passed to listener thread */
 	listenerData = (Listener *) malloc(sizeof(Listener));
 	
 	listenerData->listenfd = listenerfd;
@@ -139,11 +132,13 @@ int main()
 	listenerData->sslConnection = sslConnection;
 	listenerData->cli_addr = cli_addr;
 
+	/* Creates the listener thread */
 	if ((pthread_create(&listenerThread, NULL, newConnection, listenerData) != 0)) {
 		perror("Creating Listener thread failed!\n");
 		exit(1);
 	}
 
+	/* Everything is being taken care of by the other threads so the parent waits*/
 	while (1) {
 
 	}
@@ -171,14 +166,14 @@ SSL_CTX * InitServerCTX(void) {
 	return ctx;
 }
 
-
+/* Used by listener thread to add new connections */
 void newConnection(Listener * listenerData) {
 	unsigned int		clilen;
-	int					newsockfd;
+	int					newsockfd; /*The new socket that is being accepted*/
 	SSL_CTX *			newctx; /* Used for incoming SSL Connections */
 	SSL *				newssl; /* Used for incoming SSL Connections */
-	pthread_t			connectionThread;
-	ClientThread *		clientThreadData;
+	pthread_t			connectionThread; /*The thread for the new client */
+	ClientThread *		clientThreadData; /* Any iformation the thread will need to process the new client */
 	char				s[MAX];
 
 	for (;;) {
@@ -227,12 +222,14 @@ void newConnection(Listener * listenerData) {
 				strcpy(s, "Connected to Directory Server!");
 				printf("Accepted connection on index: %d\n", index);
 
+				/*Prepares information for client thread*/
 				clientThreadData->sslConnection = listenerData->sslConnection;
 				clientThreadData->sslIndex = index;
 				clientThreadData->serverList = listenerData->serverList;
 
 				SSL_write(newssl, s, MAX);
 
+				/* Creates client thread */
 				if ((pthread_create(&connectionThread, NULL, clientRequest, clientThreadData) != 0)) {
 					perror("Creating recieve Message Thread failed!\n");
 					exit(1);
@@ -283,7 +280,7 @@ void ShowCerts(SSL * ssl) {
 	}
 }
 
-
+/* Used by client thread to process their requestes*/
 void clientRequest(ClientThread * clientThreadData) {
 	char		request[MAX];
 	char		s[MAX];
