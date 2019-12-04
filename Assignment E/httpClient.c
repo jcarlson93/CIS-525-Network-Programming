@@ -31,6 +31,8 @@ main(int argc, char **argv)
 	char *				page;
 	int					port = 80;
 	char *				portAsString;
+	char				getRequest[MAX];
+
 
 	if (argc < 2 || argc > 3) {
 		perror("Need at least one argument URL and optional parameter PORT.\n");
@@ -40,8 +42,12 @@ main(int argc, char **argv)
 	/* Getting URL from client */
 	url = argv[1];
 	
-	if (argc == 2) {
-		portAsString = argv[2]
+	if (argc == 3) {
+		portAsString = argv[2];
+		/* How to convert an string to int*/
+		for (int i = 0; i < strlen(portAsString); i++) {
+			port = port * 10 + (portAsString[i] - '0');
+		}
 	}
 	/*How to convert url to ip https://www.geeksforgeeks.org/c-program-display-hostname-ip-address/*/
 	host_entry = gethostbyname(url);
@@ -52,27 +58,40 @@ main(int argc, char **argv)
 	
 	page = get_page();
 	
-	///* Set up the address of the server to be contacted. */
-	//memset((char *)&serv_addr, 0, sizeof(serv_addr));
-	//serv_addr.sin_family = AF_INET;
-	//serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-	//serv_addr.sin_port = htons(SERV_TCP_PORT);
+	/*How to create a GET Request https://aticleworld.com/http-get-and-post-methods-example-in-c/ */
+	/*This helped with HTTP 1.0 GET Request*/
+	printf("%s", page);
+	sprintf(getRequest, "GET %s HTTP/1.0\nHost: %s\nContent-Type: text/plain\n", page, url);
+
+	printf("\n\n%s\n\n", getRequest);
+	/* Set up the address of the server to be contacted. */
+	memset((char *)&serv_addr, 0, sizeof(serv_addr));
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = inet_addr(ipBuff);
+	serv_addr.sin_port = htons(port);
+
+	/* Create a socket (an endpoint for communication). */
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror("client: can't open stream socket");
+		exit(1);
+	}
+
+	/* Connect to the server. */
+	if (connect(sockfd, (struct sockaddr *) &serv_addr,
+		sizeof(serv_addr)) < 0) {
+		perror("client: can't connect to server");
+		exit(1);
+	}
+	printf("%s", getRequest);
+	write(sockfd, getRequest, MAX);
+
 
 	///* Display the menu, read user's response, and send it to the server. */
 	//while ((response = get_response()) != 4) {
 
-	//	/* Create a socket (an endpoint for communication). */
-	//	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-	//		perror("client: can't open stream socket");
-	//		exit(1);
-	//	}
 
-	//	/* Connect to the server. */
-	//	if (connect(sockfd, (struct sockaddr *) &serv_addr,
-	//		sizeof(serv_addr)) < 0) {
-	//		perror("client: can't connect to server");
-	//		exit(1);
-	//	}
+
+	
 
 	//	sprintf(s, "%d", response);
 
@@ -82,16 +101,15 @@ main(int argc, char **argv)
 	//	write(sockfd, s, sizeof(char));
 
 	//	/* Read the server's reply. */
-	//	nread = readn(sockfd, s, MAX);
-	//	if (nread > 0) {
-	//		printf("   %s\n", s);
-	//	}
-	//	else {
-	//		printf("Nothing read. \n");
-	//	}
-	//	close(sockfd);
-	//}
-	exit(0);  /* Exit if response is 4  */
+		nread = readn(sockfd, s, MAX);
+		if (nread > 0) {
+			printf("   %s\n", s);
+		}
+		else {
+			printf("Nothing read. \n");
+		}
+	close(sockfd);
+	exit(0); 
 }
 
 /* Asks the user for the page they would like to see */
@@ -100,7 +118,7 @@ char * get_page()
 	char  * page = (char *)malloc(sizeof(char) * MAX); //Character names can only be up to 50 characters (We say 51 to include \n
 
 	printf("Which page? ");
-	scanf("%s", &page);
+	scanf("%s", page);
 
 	return(page);
 }
