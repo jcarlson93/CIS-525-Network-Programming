@@ -1,0 +1,31 @@
+Nickalas Porsch
+CIS 525 A
+Eugene Vasserman
+November 15th, 2019
+Question 1:
+After running make then type ./directory to start the directory server.
+Next to start a server please type ./server followed by the specified port number and topic.
+When the server starts it will connect to the directory and provide a port number and topic.
+The following topics with an SSL certificate are: cows, cats, and dogs.	
+Directory server takes in two types of inputs from the user: the name of a topic or the character L which lists all the servers currently connected to the directory.
+
+A client connects to the directory server and wants to view all chat servers.
+
+Input	Output
+l		Here are all known servers:
+		cats
+		cows
+
+Input	Output
+cats	Server found at port 49523
+
+If a user puts in a server that does not exist, they will be told the server is not found.
+Client creates a new username on the cows chat server:
+
+Input	Output
+Nick	The certificate for the server is shown
+		You are the first users in the chat.
+		Enter message (Up to 254 characters)
+
+If a user inputs a message that is beyond 254 characters the message is cut to only the first 254 characters.
+If two or more users connect to the same chat server, they are able to communicate with each other.
