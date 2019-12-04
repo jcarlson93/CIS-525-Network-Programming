@@ -12,7 +12,7 @@
 #include <netinet/in.h> 
 #include <arpa/inet.h> 
 
-#define MAX 1000
+#define MAX 100000
 
 char * get_page(void);
 int readn(int, char *, int);
@@ -23,16 +23,14 @@ main(int argc, char **argv)
 	int                 sockfd;
 	struct sockaddr_in  serv_addr;
 	char                s[MAX];      /* array to hold output */
-	int                 response;    /* user response        */
 	int                 nread;       /* number of characters */
-	int					x;
 	char *				url;
 	char *				ipBuff;
 	char *				page;
 	int					port = 80;
 	char *				portAsString;
 	char				getRequest[MAX];
-
+	char *				httpCode;
 
 	if (argc < 2 || argc > 3) {
 		perror("Need at least one argument URL and optional parameter PORT.\n");
@@ -60,10 +58,9 @@ main(int argc, char **argv)
 	
 	/*How to create a GET Request https://aticleworld.com/http-get-and-post-methods-example-in-c/ */
 	/*This helped with HTTP 1.0 GET Request*/
-	printf("%s", page);
-	sprintf(getRequest, "GET %s HTTP/1.0\nHost: %s\nContent-Type: text/plain\n", page, url);
 
-	printf("\n\n%s\n\n", getRequest);
+	sprintf(getRequest, "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n", page, url);
+
 	/* Set up the address of the server to be contacted. */
 	memset((char *)&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
@@ -82,28 +79,16 @@ main(int argc, char **argv)
 		perror("client: can't connect to server");
 		exit(1);
 	}
-	printf("%s", getRequest);
+
 	write(sockfd, getRequest, MAX);
-
-
-	///* Display the menu, read user's response, and send it to the server. */
-	//while ((response = get_response()) != 4) {
-
-
-
-	
-
-	//	sprintf(s, "%d", response);
-
-	//	/* Send the user's request to the server. */
-	//	x = 256;
-	//	write(sockfd, &x, sizeof(int));
-	//	write(sockfd, s, sizeof(char));
 
 	//	/* Read the server's reply. */
 		nread = readn(sockfd, s, MAX);
 		if (nread > 0) {
-			printf("   %s\n", s);
+			httpCode = strtok(s, "D");
+			if (strstr(httpCode, "OK") != NULL) {
+				printf("%s", httpCode);
+			}
 		}
 		else {
 			printf("Nothing read. \n");
