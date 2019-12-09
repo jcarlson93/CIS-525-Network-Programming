@@ -1,6 +1,7 @@
 /*-------------------------------------------------------------*/
 /* Assignment E based off client.c from net7                   */
-/* Created by Nickalas Porsch                                  */
+/* Created by Nickalas Porsch                                                              */
+/* To run type make and then do ./client WEBSITE PORT (Port is not needed if using port 80 */
 /*-------------------------------------------------------------*/
 
 #include <stdio.h>
@@ -35,6 +36,8 @@ main(int argc, char **argv)
 	char 				httpCode[MAX];  /* The success code given back from the server */
 	char *				webPage; /* The webpage represented in HTML */
 	char *				errorCode; /* If the webpage is not returned correctly an error code will be given*/
+	FILE *				fptr; /* File pointer to manipulate results.txt*/
+	
 
 	if (argc < 2 || argc > 3) {
 		perror("Need at least one argument URL and optional parameter PORT.\n");
@@ -52,17 +55,21 @@ main(int argc, char **argv)
 		}
 	}
 
+	/* Forgot how to do file maipulation: https://www.programiz.com/c-programming/c-file-input-output*/
+	fptr = fopen("results.txt", "w");
+	fprintf(fptr, "PARAMETERS\nURL: %s \nPort: %d\n", url, port);
 	/*How to convert url to ip https://www.geeksforgeeks.org/c-program-display-hostname-ip-address/*/
 	host_entry = gethostbyname(url);
 
 	ipBuff = inet_ntoa(*((struct in_addr *) host_entry->h_addr_list[0]));
 	printf("Trying %s...\n", ipBuff);
+	fprintf(fptr, "Trying %s...\n", ipBuff);
 	printf("Connected to %s.\n", url);
-	
+	fprintf(fptr, "Connected to %s.\n", url);
+
 	page = get_page();
 	
 	/*How to create a GET Request https://aticleworld.com/http-get-and-post-methods-example-in-c/ */
-	/*This helped with HTTP 1.0 GET Request*/
 
 	sprintf(getRequest, "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n", page, url);
 
@@ -88,35 +95,42 @@ main(int argc, char **argv)
 	write(sockfd, getRequest, MAX);
 
 	//	/* Read the server's reply. */
-		nread = readn(sockfd, s, MAX);
-		if (nread > 0) {
-			strncpy(httpCode, s, MAX);
-			if ((strstr(httpCode, "HTTP/1.0 200 OK") != NULL) || (strstr(httpCode, "HTTP/1.1 200 OK"))) {
-
-				/*Does string manipulation to return the webpage starting with DOCTYPE */
-				webPage = strtok(s, "<");
-				webPage = strtok(NULL,"\0");
-				strcpy(s, "<");
-				strcat(s, webPage);
-				
-				printf("%s\n", s);
-			}
-			else {
-				/* Does string manipulation on the returned page to get the error code.*/
-				errorCode = strtok(s, "<");
-				errorCode = strtok(NULL, "<");
-				errorCode = strtok(NULL, "<");
-				errorCode = strtok(NULL, "<");
-				errorCode = strtok(NULL, "<");
-				errorCode = strtok(errorCode, ">");
-				errorCode = strtok(NULL, "\0");
-				printf("%s\n",errorCode);
-			}
+	nread = readn(sockfd, s, MAX);
+	if (nread > 0) {
+		strncpy(httpCode, s, MAX);
+		if ((strstr(httpCode, "HTTP/1.0 200 OK") != NULL) || (strstr(httpCode, "HTTP/1.1 200 OK"))) {
+			/*Does string manipulation to return the webpage starting with DOCTYPE */
+			webPage = strtok(s, "<");
+			webPage = strtok(NULL,"\0");
+			strcpy(s, "<");
+			strcat(s, webPage);
+			
+			printf("%s\n", s);
+			fprintf(fptr, "%s\n", s);
 		}
 		else {
-			printf("Nothing read. \n");
+			/* Does string manipulation on the returned page to get the error code.*/
+			errorCode = strtok(s, "<");
+			errorCode = strtok(NULL, "<");
+			errorCode = strtok(NULL, "<");
+			errorCode = strtok(NULL, "<");
+			errorCode = strtok(NULL, "<");
+			errorCode = strtok(errorCode, ">");
+			errorCode = strtok(NULL, "\0");
+			printf("%s\n",errorCode);
+			fprintf(fptr, "%s\n", errorCode);
 		}
-	close(sockfd);
+	}
+	else {
+		printf("Nothing read. \n");
+		fprintf(fptr, "Nothing read. \n");
+
+	}
+
+	/*Closed the connection to the server and closed connection to text file*/
+	close(sockfd);	
+	fclose(fptr);
+
 	exit(0); 
 }
 
