@@ -2,6 +2,7 @@
 /* Assignment E based off client.c from net7                   */
 /* Created by Nickalas Porsch                                                              */
 /* To run type make and then do ./client WEBSITE PORT (Port is not needed if using port 80 */
+/* The results are printed to results.txt (It includes anything printed to the terminal and parameters) */
 /*-------------------------------------------------------------*/
 
 #include <stdio.h>
