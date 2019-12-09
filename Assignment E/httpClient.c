@@ -111,13 +111,10 @@ main(int argc, char **argv)
 		}
 		else {
 			/* Does string manipulation on the returned page to get the error code.*/
-			errorCode = strtok(s, "<");
-			errorCode = strtok(NULL, "<");
-			errorCode = strtok(NULL, "<");
-			errorCode = strtok(NULL, "<");
-			errorCode = strtok(NULL, "<");
+
+			errorCode = strtok(strstr(s, "<title>"), "<");
 			errorCode = strtok(errorCode, ">");
-			errorCode = strtok(NULL, "\0");
+			errorCode = strtok(NULL, "<");
 			printf("%s\n",errorCode);
 			fprintf(fptr, "%s\n", errorCode);
 		}
