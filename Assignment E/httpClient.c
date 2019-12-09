@@ -14,23 +14,27 @@
 
 #define MAX 100000
 
+/*Method Definitions*/
 char * get_page(void);
 int readn(int, char *, int);
 
+/*Main function that allows a user to provide a website and port and then a webpage. The program will then print the webpage or error code to the user.*/
 main(int argc, char **argv)
 {
-	struct hostent		*host_entry;
-	int                 sockfd;
-	struct sockaddr_in  serv_addr;
+	struct hostent		* host_entry; /*Used to convert the URL to the correct IP Address*/
+	int                 sockfd;		/* Socket file descriptor that connects to server*/
+	struct sockaddr_in  serv_addr;  /* Represents the server address to the server*/
 	char                s[MAX];      /* array to hold output */
 	int                 nread;       /* number of characters */
-	char *				url;
-	char *				ipBuff;
-	char *				page;
-	int					port = 80;
-	char *				portAsString;
-	char				getRequest[MAX];
-	char *				httpCode;
+	char *				url;		 /* URL provided by the user*/
+	char *				ipBuff;      /* IP address written in dot notation */
+	char *				page;        /* The page the user would like to view*/
+	int					port = 80;   /* The port to connect to the website */
+	char *				portAsString; /* The Port parameter given as a string parameter */
+	char				getRequest[MAX]; /*The initial GET Request */
+	char 				httpCode[MAX];  /* The success code given back from the server */
+	char *				webPage; /* The webpage represented in HTML */
+	char *				errorCode; /* If the webpage is not returned correctly an error code will be given*/
 
 	if (argc < 2 || argc > 3) {
 		perror("Need at least one argument URL and optional parameter PORT.\n");
@@ -47,6 +51,7 @@ main(int argc, char **argv)
 			port = port * 10 + (portAsString[i] - '0');
 		}
 	}
+
 	/*How to convert url to ip https://www.geeksforgeeks.org/c-program-display-hostname-ip-address/*/
 	host_entry = gethostbyname(url);
 
@@ -85,9 +90,27 @@ main(int argc, char **argv)
 	//	/* Read the server's reply. */
 		nread = readn(sockfd, s, MAX);
 		if (nread > 0) {
-			httpCode = strtok(s, "D");
-			if (strstr(httpCode, "OK") != NULL) {
-				printf("%s", httpCode);
+			strncpy(httpCode, s, MAX);
+			if ((strstr(httpCode, "HTTP/1.0 200 OK") != NULL) || (strstr(httpCode, "HTTP/1.1 200 OK"))) {
+
+				/*Does string manipulation to return the webpage starting with DOCTYPE */
+				webPage = strtok(s, "<");
+				webPage = strtok(NULL,"\0");
+				strcpy(s, "<");
+				strcat(s, webPage);
+				
+				printf("%s\n", s);
+			}
+			else {
+				/* Does string manipulation on the returned page to get the error code.*/
+				errorCode = strtok(s, "<");
+				errorCode = strtok(NULL, "<");
+				errorCode = strtok(NULL, "<");
+				errorCode = strtok(NULL, "<");
+				errorCode = strtok(NULL, "<");
+				errorCode = strtok(errorCode, ">");
+				errorCode = strtok(NULL, "\0");
+				printf("%s\n",errorCode);
 			}
 		}
 		else {
